@@ -1,41 +1,13 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-
-// ─── 48 Karo Yılan Yol — Doğa Teması ─────────────────────────────────────────
-// 3 satır yılan + son sütun geri; 1100×640 canvas
-const W = 1100, H = 640
-
-// Karo konumları: satır-başı-başı yapısı
-const KAROLAR = (() => {
-    const pos = []
-    const xs = Array.from({ length: 12 }, (_, i) => 80 + i * 88)   // 12 sütun
-    const y1 = 560, y2 = 380, y3 = 200, y4 = 100              // satır y'leri
-    // Satır 1: sola→sağa (0-11)
-    xs.forEach(x => pos.push({ x, y: y1 }))
-    // Sütun sağ: yukarı (12-13)
-    pos.push({ x: xs[11], y: (y1 + y2) / 2 })
-    pos.push({ x: xs[11], y: y2 })
-        // Satır 2: sağ→sola (14-25, 12 tile)
-        ;[...xs].reverse().forEach(x => pos.push({ x, y: y2 }))
-    // Sol sütun yukarı (26-27)
-    pos.push({ x: xs[0], y: (y2 + y3) / 2 })
-    pos.push({ x: xs[0], y: y3 })
-    // Satır 3: sola→sağa (28-37, 10 tile)
-    xs.slice(0, 10).forEach(x => pos.push({ x, y: y3 }))
-    // Sağ sütun yukarı (38-39)
-    pos.push({ x: xs[9], y: (y3 + y4) / 2 })
-    pos.push({ x: xs[9], y: y4 })
-        // Satır 4: sağ→sola (40-47, 8 tile)
-        ;[...xs.slice(0, 8)].reverse().forEach(x => pos.push({ x, y: y4 }))
-    return pos // 48 tile
-})()
+import { KAROLAR_POSITIONS, KAROLAR_GRAPH, BOARD_WIDTH, BOARD_HEIGHT } from '../lib/boardMapData'
 
 const TIP_RENK = { start: '#166534', normal: '#1e3a5f', anahtar: '#78350f', tuzak: '#7f1d1d', heal: '#14532d' }
-const TIP_SINIR = { start: '#4ade80', normal: '#60a5fa', anahtar: '#fbbf24', tuzak: '#f87171', heal: '#86efac' }
+const TIP_SINIR = { start: '#4ade80', normal: '#555555', anahtar: '#fbbf24', tuzak: '#f87171', heal: '#86efac' }
 const TIP_IKON = { start: '🏁', normal: '', anahtar: '🗝️', tuzak: '💀', heal: '❤️' }
 const OYUNCU_RENK = ['#7c3aed', '#06b6d4', '#fbbf24', '#ec4899', '#10b981', '#f97316', '#3b82f6', '#ef4444']
 
-function arka(ctx) {
+function arka(ctx, W, H) {
     // Gökyüzü → çimen gradyanı
     const g = ctx.createLinearGradient(0, 0, 0, H)
     g.addColorStop(0, '#1a4731'); g.addColorStop(0.4, '#166534'); g.addColorStop(1, '#14532d')
@@ -43,38 +15,15 @@ function arka(ctx) {
 
     // Grid çim dokusu
     ctx.strokeStyle = 'rgba(255,255,255,0.04)'; ctx.lineWidth = 1
-    for (let x = 0; x < W; x += 30) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke() }
-    for (let y = 0; y < H; y += 30) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke() }
+    for (let x = 0; x < W; x += 100) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke() }
+    for (let y = 0; y < H; y += 100) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke() }
 
-    // Çimenler (üstten bakış, nokta kümeleri)
+    // Çiçekler
     ctx.fillStyle = 'rgba(52,211,153,0.12)'
-    for (let i = 0; i < 180; i++) {
+    for (let i = 0; i < 600; i++) {
         const gx = Math.random() * W, gy = Math.random() * H
         ctx.beginPath(); ctx.arc(gx, gy, 2 + Math.random() * 4, 0, Math.PI * 2); ctx.fill()
     }
-
-    // Ağaçlar (üstten bakış: koyu yeşil daire)
-    const agaclar = [[50, 80], [100, 150], [30, 400], [60, 490], [1050, 90], [1020, 300], [1050, 500],
-    [200, 50], [400, 60], [600, 50], [800, 80], [950, 60],
-    [150, 620], [350, 610], [600, 600], [850, 610], [1000, 600], [30, 260]]
-    agaclar.forEach(([ax, ay]) => {
-        ctx.shadowColor = '#052e16'; ctx.shadowBlur = 8
-        ctx.fillStyle = '#052e16'; ctx.beginPath(); ctx.arc(ax, ay, 18, 0, Math.PI * 2); ctx.fill()
-        ctx.fillStyle = '#166534'; ctx.beginPath(); ctx.arc(ax, ay, 12, 0, Math.PI * 2); ctx.fill()
-        ctx.fillStyle = '#22c55e'; ctx.beginPath(); ctx.arc(ax - 3, ay - 3, 6, 0, Math.PI * 2); ctx.fill()
-        ctx.shadowBlur = 0
-    })
-
-    // Çiçekler
-    const cicekler = [[250, 540], [450, 540], [700, 420], [900, 380], [300, 200], [500, 160], [400, 620]]
-    cicekler.forEach(([fx, fy]) => {
-        ctx.fillStyle = '#fde68a'; ctx.beginPath(); ctx.arc(fx, fy, 4, 0, Math.PI * 2); ctx.fill()
-        ctx.fillStyle = '#f59e0b'; ctx.beginPath(); ctx.arc(fx, fy, 2, 0, Math.PI * 2); ctx.fill()
-    })
-
-    // Taşlı nehir (yatay şerit)
-    ctx.fillStyle = 'rgba(56,189,248,0.12)'
-    ctx.beginPath(); ctx.ellipse(W / 2, H / 2 - 20, 200, 25, 0.1, 0, Math.PI * 2); ctx.fill()
 }
 
 function karoPath(ctx, x, y, r) {
@@ -87,62 +36,91 @@ function karoPath(ctx, x, y, r) {
     ctx.closePath()
 }
 
-export default function Board({ karoTipleri = [], kasaTileId = null, boardState, address, onRollDice, onInitialRoll, isMyTurn, isInitialRollPhase, sonZar, zarAnimasyon }) {
+export default function Board({ karoTipleri = {}, kasaTileId = null, boardState, address, onRollDice, onInitialRoll, onChooseBranch, isMyTurn, isInitialRollPhase, sonZar, zarAnimasyon, isBranchChoicePhase }) {
     const canvasRef = useRef(null)
-    const animRef = useRef({}) // { adres: { x, y, hedefX, hedefY } }
+    const animRef = useRef({}) // { adres: { path: [], progress: 0 } }
     const rafRef = useRef(null)
+    const cameraRef = useRef({ x: KAROLAR_POSITIONS[0]?.x || 0, y: KAROLAR_POSITIONS[0]?.y || 0 })
 
     const draw = useCallback(() => {
         const canvas = canvasRef.current
         if (!canvas) return
         const ctx = canvas.getContext('2d')
-        canvas.width = W; canvas.height = H
+        const viewW = canvas.clientWidth, viewH = canvas.clientHeight
+        canvas.width = viewW; canvas.height = viewH
 
-        arka(ctx)
+        // Find camera target
+        let targetX = BOARD_WIDTH / 2, targetY = BOARD_HEIGHT / 2
+        if (boardState?.mevcutOyuncu) {
+            const activePlayer = boardState.oyuncular.find(p => p.adres === boardState.mevcutOyuncu)
+            if (activePlayer && KAROLAR_POSITIONS[activePlayer.konum]) {
+                const anim = animRef.current[activePlayer.adres]
+                if (anim && anim.x) {
+                    targetX = anim.x
+                    targetY = anim.y
+                } else {
+                    targetX = KAROLAR_POSITIONS[activePlayer.konum].x
+                    targetY = KAROLAR_POSITIONS[activePlayer.konum].y
+                }
+            }
+        }
 
-        // Yol şeridi (bg)
-        ctx.strokeStyle = 'rgba(139,115,85,0.5)'; ctx.lineWidth = 36; ctx.setLineDash([])
+        // Smooth camera follow
+        cameraRef.current.x += (targetX - cameraRef.current.x) * 0.1
+        cameraRef.current.y += (targetY - cameraRef.current.y) * 0.1
+
+        ctx.save()
+        // Center camera
+        ctx.translate(viewW / 2 - cameraRef.current.x, viewH / 2 - cameraRef.current.y)
+
+        arka(ctx, BOARD_WIDTH, BOARD_HEIGHT)
+
+        // Yol şeridi (bg) graph edges
+        ctx.strokeStyle = 'rgba(139,115,85,0.8)'; ctx.lineWidth = 42; ctx.lineJoin = 'round'
         ctx.beginPath()
-        KAROLAR.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y))
+        for (const [idStr, node] of Object.entries(KAROLAR_GRAPH)) {
+            const p1 = KAROLAR_POSITIONS[idStr]
+            if (!p1) continue
+            node.next.forEach(nid => {
+                const p2 = KAROLAR_POSITIONS[nid]
+                if (p2) { ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y) }
+            })
+        }
         ctx.stroke()
 
-        // Yol şeridi kenarları
-        ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 38; ctx.setLineDash([])
+        // Yol kenarları
+        ctx.strokeStyle = '#555555'; ctx.lineWidth = 44; ctx.globalCompositeOperation = 'destination-over';
+        ctx.stroke(); ctx.globalCompositeOperation = 'source-over'
 
-        // Son → başa ok
-        const son = KAROLAR[47], ilk = KAROLAR[0]
-        ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 2; ctx.setLineDash([6, 4])
-        ctx.beginPath(); ctx.moveTo(son.x, son.y); ctx.lineTo(ilk.x, ilk.y); ctx.stroke()
-        ctx.setLineDash([])
-
-        // Oklar yönlere
-        KAROLAR.forEach((pos, i) => {
-            if (i >= KAROLAR.length - 1) return
-            const next = KAROLAR[i + 1]
-            const dx = next.x - pos.x, dy = next.y - pos.y, len = Math.sqrt(dx * dx + dy * dy)
-            if (len < 2) return
-            const mx = pos.x + dx * 0.55, my = pos.y + dy * 0.55, ang = Math.atan2(dy, dx)
-            ctx.save(); ctx.globalAlpha = 0.2; ctx.fillStyle = '#fff'
-            ctx.translate(mx, my); ctx.rotate(ang)
-            ctx.beginPath(); ctx.moveTo(7, 0); ctx.lineTo(-4, -4); ctx.lineTo(-4, 4); ctx.closePath(); ctx.fill()
-            ctx.restore()
-        })
+        // Kasa yönü çizgisi (Dashed line to chest)
+        if (kasaTileId !== null && KAROLAR_POSITIONS[kasaTileId] && boardState?.mevcutOyuncu) {
+            const cp = boardState.oyuncular.find(p => p.adres === boardState.mevcutOyuncu)
+            if (cp && KAROLAR_POSITIONS[cp.konum]) {
+                const p1 = KAROLAR_POSITIONS[cp.konum]
+                const p2 = KAROLAR_POSITIONS[kasaTileId]
+                ctx.strokeStyle = 'rgba(251, 191, 36, 0.4)'; ctx.lineWidth = 4
+                ctx.setLineDash([15, 15])
+                ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke()
+                ctx.setLineDash([])
+            }
+        }
 
         // Karolar
-        KAROLAR.forEach((pos, id) => {
-            const tip = karoTipleri[id] || 'normal'
+        for (const [idStr, pos] of Object.entries(KAROLAR_POSITIONS)) {
+            const id = Number(idStr)
+            const node = KAROLAR_GRAPH[id]
+            const tip = node ? node.tip : 'normal'
             const isKasa = id === kasaTileId
             const isMevcut = boardState?.mevcutOyuncu && boardState?.oyuncular?.some(o => Number(o.konum) === id && o.adres === boardState.mevcutOyuncu)
             const r = 24
 
-            ctx.shadowColor = isKasa ? '#fbbf24' : (TIP_SINIR[tip] || '#60a5fa')
-            ctx.shadowBlur = (isKasa || isMevcut) ? 22 : 6
+            // Flat shading requested by user (matte)
+            ctx.shadowBlur = 0
             ctx.fillStyle = isKasa ? '#78350f' : (TIP_RENK[tip] || TIP_RENK.normal)
             karoPath(ctx, pos.x, pos.y, r); ctx.fill()
-            ctx.shadowBlur = 0
 
-            ctx.strokeStyle = isKasa ? '#fbbf24' : (TIP_SINIR[tip] || '#60a5fa')
-            ctx.lineWidth = isKasa ? 3 : 2
+            ctx.strokeStyle = isKasa ? '#fbbf24' : (TIP_SINIR[tip] || '#555555')
+            ctx.lineWidth = isKasa ? 4 : 2
             karoPath(ctx, pos.x, pos.y, r); ctx.stroke()
 
             // İkon
@@ -150,47 +128,92 @@ export default function Board({ karoTipleri = [], kasaTileId = null, boardState,
             if (ikon) { ctx.font = `${r * 0.75}px serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(ikon, pos.x, pos.y - 2) }
 
             // ID
-            ctx.fillStyle = 'rgba(255,255,255,0.2)'; ctx.font = '7px monospace'; ctx.textAlign = 'center'; ctx.fillText(String(id), pos.x, pos.y + r - 8)
-        })
+            ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.font = '10px monospace'; ctx.textAlign = 'center'; ctx.fillText(String(id), pos.x, pos.y + r - 8)
+        }
 
         // Oyuncu token'ları
-        boardState?.oyuncular?.forEach((oy, i) => {
+        const sortedPlayers = [...(boardState?.oyuncular || [])].sort((a, b) => (a.konum || 0) - (b.konum || 0))
+        sortedPlayers.forEach((oy, i) => {
             if (oy.elendi) return
-            const konum = Number(oy.konum)
-            const tilePos = KAROLAR[konum] || KAROLAR[0]
+
+            let drawX = 0, drawY = 0, scale = 1.0
+
+            const anim = animRef.current[oy.adres]
+            if (anim && anim.path && anim.path.length > 0) {
+                // Hop animation along path array
+                anim.progress += 0.08
+                if (anim.progress >= 1) {
+                    anim.progress = 0
+                    anim.currentIndex++
+                }
+                if (anim.currentIndex >= anim.path.length - 1) {
+                    // done
+                    anim.path = []
+                    drawX = KAROLAR_POSITIONS[oy.konum].x
+                    drawY = KAROLAR_POSITIONS[oy.konum].y
+                } else {
+                    const fromPos = KAROLAR_POSITIONS[anim.path[anim.currentIndex]]
+                    const toPos = KAROLAR_POSITIONS[anim.path[anim.currentIndex + 1]]
+                    if (fromPos && toPos) {
+                        const t = anim.progress
+                        drawX = fromPos.x + (toPos.x - fromPos.x) * t
+                        drawY = fromPos.y + (toPos.y - fromPos.y) * t
+                        // Hop Arc
+                        const hopHeight = 30 * Math.sin(t * Math.PI)
+                        drawY -= hopHeight
+                        scale = 1 + Math.sin(t * Math.PI) * 0.2
+                    }
+                }
+                anim.x = drawX
+                anim.y = drawY
+            } else {
+                const pos = KAROLAR_POSITIONS[oy.konum] || KAROLAR_POSITIONS[0]
+                drawX = pos.x
+                drawY = pos.y
+                if (!anim) animRef.current[oy.adres] = { x: drawX, y: drawY }
+
+                // Offset overlaps
+                const onSameTile = boardState.oyuncular.filter(p => !p.elendi && p.konum === oy.konum)
+                const index = onSameTile.findIndex(p => p.adres === oy.adres)
+                if (onSameTile.length > 1) {
+                    const ang = (Math.PI * 2 * index) / onSameTile.length
+                    const offsetDiff = 10
+                    drawX += Math.cos(ang) * offsetDiff
+                    drawY += Math.sin(ang) * offsetDiff
+                }
+            }
             const c = OYUNCU_RENK[i % 8]
-            const ayni = (boardState.oyuncular || []).slice(0, i).filter(p => Number(p.konum) === konum && !p.elendi).length
-            const ox = (ayni % 2) * 22 - 11, oy2 = Math.floor(ayni / 2) * 20 - 10
-            const px = tilePos.x + ox, py = tilePos.y - 6 + oy2
+            const px = drawX, py = drawY - 6
 
             // Gölge
             ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.beginPath(); ctx.ellipse(px, py + 16, 10, 4, 0, 0, Math.PI * 2); ctx.fill()
 
             // Gövde
             ctx.shadowColor = c; ctx.shadowBlur = 14
-            ctx.fillStyle = c; ctx.beginPath(); ctx.arc(px, py, 13, 0, Math.PI * 2); ctx.fill()
+            ctx.fillStyle = c; ctx.beginPath(); ctx.arc(px, py, 13 * scale, 0, Math.PI * 2); ctx.fill()
             ctx.shadowBlur = 0
 
             // Parlak üst
-            ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.beginPath(); ctx.arc(px - 3, py - 3, 5, 0, Math.PI * 2); ctx.fill()
+            ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.beginPath(); ctx.arc(px - 3, py - 3, 5 * scale, 0, Math.PI * 2); ctx.fill()
 
             // Kenar
             ctx.strokeStyle = oy.adres === address ? '#fbbf24' : 'rgba(255,255,255,0.8)'
-            ctx.lineWidth = oy.adres === address ? 3 : 1.5; ctx.beginPath(); ctx.arc(px, py, 13, 0, Math.PI * 2); ctx.stroke()
+            ctx.lineWidth = oy.adres === address ? 3 : 1.5; ctx.beginPath(); ctx.arc(px, py, 13 * scale, 0, Math.PI * 2); ctx.stroke()
 
             // İnitial
-            ctx.fillStyle = '#fff'; ctx.font = 'bold 8px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+            ctx.fillStyle = '#fff'; ctx.font = `bold ${8 * scale}px monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
             ctx.fillText(oy.bot ? '🤖' : (oy.adres?.slice(2, 4)?.toUpperCase() || '??'), px, py)
 
-            // Can kalpleri
-            for (let h = 0; h < (oy.hp || 0); h++) { ctx.font = '8px serif'; ctx.fillText('❤️', px - 9 + h * 10, py - 24) }
+            // Can 100 üstünden
+            ctx.fillStyle = '#ef4444'; ctx.font = 'bold 9px monospace'
+            ctx.fillText(`🖤${oy.hp || 0}`, px, py - 24)
 
             // Anahtar sayısı
-            ctx.fillStyle = '#fbbf24'; ctx.font = 'bold 8px monospace'; ctx.textAlign = 'center'
+            ctx.fillStyle = '#fbbf24'; ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center'
             ctx.fillText(`🗝️${oy.anahtar || 0}`, px, py + 26)
 
             // Kasa
-            if ((oy.kasalar || 0) > 0) { ctx.fillStyle = '#a78bfa'; ctx.font = 'bold 8px monospace'; ctx.fillText(`🎁${oy.kasalar}`, px, py + 36) }
+            if ((oy.kasalar || 0) > 0) { ctx.fillStyle = '#a78bfa'; ctx.font = 'bold 9px monospace'; ctx.fillText(`🎁${oy.kasalar}`, px, py + 36) }
 
             // Sıra ok
             if (oy.adres === boardState.mevcutOyuncu) {
@@ -199,13 +222,50 @@ export default function Board({ karoTipleri = [], kasaTileId = null, boardState,
                 ctx.setLineDash([])
             }
         })
+
+        ctx.restore() // restore camera clip
     }, [karoTipleri, kasaTileId, boardState, address])
 
-    useEffect(() => { draw() }, [draw])
+    // Animation Loop
+    useEffect(() => {
+        let raf
+        const animate = () => {
+            draw()
+            raf = requestAnimationFrame(animate)
+        }
+        raf = requestAnimationFrame(animate)
+        return () => cancelAnimationFrame(raf)
+    }, [draw])
+
+    // Detect movement path and set up animations
+    useEffect(() => {
+        if (!boardState?.kayit?.length) return
+        const lastEvent = boardState.kayit[boardState.kayit.length - 1]
+        // Whenever a player moves, we set up the animation path array
+        const currentPlayer = boardState.oyuncular.find(p => p.adres === boardState.mevcutOyuncu)
+        if (currentPlayer && currentPlayer.adres === address) return // Client handles their own animations smoothly (hypothetical optimization, ignoring for standard implementation)
+    }, [boardState])
 
     return (
-        <div style={{ position: 'relative', display: 'inline-block' }}>
-            <canvas ref={canvasRef} style={{ display: 'block', borderRadius: 14, border: '1px solid rgba(34,197,94,0.4)', boxShadow: '0 0 50px rgba(22,163,74,0.2)', maxWidth: '100%' }} />
+        <div style={{ position: 'relative', display: 'inline-block', width: '100%', height: 'calc(100vh - 120px)' }}>
+            <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: '100%', borderRadius: 14, border: '1px solid rgba(34,197,94,0.4)', boxShadow: '0 0 50px rgba(22,163,74,0.2)', backgroundColor: '#1a4731' }} />
+
+            {/* Branch Choice Selection Modal */}
+            <AnimatePresence>
+                {isBranchChoicePhase && isMyTurn && boardState?.mevcutOyuncu === address && (
+                    <motion.div initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                        style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', background: 'rgba(0,0,0,0.8)', padding: '2rem', borderRadius: 16, border: '2px solid #fbbf24', textAlign: 'center', zIndex: 100 }}>
+                        <h3 style={{ color: '#fbbf24', marginBottom: '1rem', marginTop: 0 }}>Yol Ayrımı! Hangi Yön?</h3>
+                        <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+                            {KAROLAR_GRAPH[boardState.oyuncular.find(p => p.adres === address)?.konum]?.next.map((n) => (
+                                <button key={n} onClick={() => onChooseBranch(n)} style={{ padding: '0.8rem 1.5rem', background: '#3b82f6', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer', fontWeight: 'bold' }}>
+                                    {KAROLAR_GRAPH[n]?.tip?.toUpperCase() || 'YOL'} (Id: {n})
+                                </button>
+                            ))}
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
             <div style={{ position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.6rem', zIndex: 10 }}>
                 {/* Çift zar göstergesi */}

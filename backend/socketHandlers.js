@@ -21,7 +21,10 @@ function rateLimit(id, ms = 500) {
 const atYarislari = new Map()
 
 function atYarisiBasla(io, roomId, oyuncular) {
-    const atlar = assignHorses(oyuncular.filter(o => !o.elendi))
+    let atlar = assignHorses(oyuncular.filter(o => !o.elendi))
+    // FIX: ensure explicitly all horses have `finished: false` so that the every() check doesn't early-terminate
+    atlar = atlar.map(a => ({ ...a, finished: false }))
+
     const yarisState = { atlar, baslangic: Date.now(), bitti: false, kazanan: null, interval: null }
     atYarislari.set(roomId, yarisState)
     io.to(roomId).emit('at-yarisi-basladi', { atlar })
@@ -47,7 +50,7 @@ function atYarisiBasla(io, roomId, oyuncular) {
         io.to(roomId).emit('at-konumlar', {
             atlar: yaris.atlar.map(a => ({ playerAddress: a.playerAddress, position: a.position, emotion: a.emotion, finished: a.finished }))
         })
-        const hepsiBitti = yaris.atlar.every(a => a.finished) || (Date.now() - yaris.baslangic > 35000)
+        const hepsiBitti = yaris.atlar.every(a => a.finished === true) || (Date.now() - yaris.baslangic > 60000)
         if (hepsiBitti) {
             clearInterval(yaris.interval); yaris.bitti = true
             const w = yaris.kazanan || yaris.atlar.sort((a, b) => b.position - a.position)[0]?.playerAddress
@@ -191,13 +194,36 @@ function setupSocketHandlers(io, rooms) {
             if (sonuc.etki.miniGameBasla) {
                 const room = rooms.get(mevcutOdaId)
                 if (room) setTimeout(() => atYarisiBasla(io, mevcutOdaId, room.oyuncular), 3000)
-            }
-            if (sonuc.etki.kazanan) {
+            } else if (sonuc.etki.kazanan) {
                 setTimeout(() => io.to(mevcutOdaId).emit('oyun-bitti', { kazanan: sonuc.etki.kazanan, durum: sonuc.durum }), 1500)
-            } else {
+            } else if (!sonuc.etki.bekliyor) {
                 setTimeout(() => botSirasiIsle(io, rooms, mevcutOdaId), 1800)
             }
         })
+
+        // ── Yol Seçimi (Branching) ──────────────────────────────────────────────────
+        socket.on('choose-branch', ({ walletAddress, secilenYolId }) => {
+            if (!mevcutOdaId) return
+            const { secimYapVeIlerle } = require('./boardEngine')
+            const sonuc = secimYapVeIlerle(mevcutOdaId, walletAddress, secilenYolId)
+            if (sonuc.hata) return socket.emit('hata', { mesaj: sonuc.hata })
+
+            io.to(mevcutOdaId).emit('zar-atildi', {
+                adres: walletAddress, zar: sonuc.etki.zar, toplam: sonuc.etki.toplam,
+                yeniKonum: sonuc.etki.yeniKonum, etki: sonuc.etki,
+                durum: sonuc.durum, mesaj: sonuc.etki.mesaj,
+            })
+
+            if (sonuc.etki.miniGameBasla) {
+                const room = rooms.get(mevcutOdaId)
+                if (room) setTimeout(() => atYarisiBasla(io, mevcutOdaId, room.oyuncular), 3000)
+            } else if (sonuc.etki.kazanan) {
+                setTimeout(() => io.to(mevcutOdaId).emit('oyun-bitti', { kazanan: sonuc.etki.kazanan, durum: sonuc.durum }), 1500)
+            } else if (!sonuc.etki.bekliyor) {
+                setTimeout(() => botSirasiIsle(io, rooms, mevcutOdaId), 1800)
+            }
+        })
+
 
         // ── At Yarışı Sonuç ───────────────────────────────────────────────────────
         socket.on('at-yarisi-sonuc', ({ siralama }) => {
@@ -276,27 +302,48 @@ function setupSocketHandlers(io, rooms) {
     })
 }
 
-// ─── Bot Otomatik Oynama ───────────────────────────────────────────────────────
+// ─── Bot Oynama (Zar ve Dal Seçimi) ──────────────────────────────────────────
 function botSirasiIsle(io, rooms, roomId) {
     const board = getBoardState(roomId)
-    if (!board || board.faz !== 'zar') return
+    if (!board) return
+    if (board.faz !== 'zar' && board.faz !== 'branch_choice') return
     const mevcutOyuncu = board.oyuncular[board.tur]
     if (!mevcutOyuncu?.bot) return
 
     setTimeout(() => {
         const b = getBoardState(roomId)
-        if (!b || b.faz !== 'zar') return
+        if (!b) return
         const cp = b.oyuncular[b.tur]
         if (!cp?.bot) return
-        const sonuc = zarAt(roomId, cp.adres)
-        if (!sonuc.tamam) return
+
+        let sonuc
+        if (b.faz === 'zar') {
+            sonuc = zarAt(roomId, cp.adres)
+        } else if (b.faz === 'branch_choice') {
+            const { KARO_GRAPH } = require('./boardEngine')
+            const simdikiKaro = KARO_GRAPH[cp.konum]
+            const rastgeleSecimId = simdikiKaro.next[Math.floor(Math.random() * simdikiKaro.next.length)]
+            const { secimYapVeIlerle } = require('./boardEngine')
+            sonuc = secimYapVeIlerle(roomId, cp.adres, rastgeleSecimId)
+        }
+
+        if (!sonuc || !sonuc.tamam) return
+
         io.to(roomId).emit('zar-atildi', {
             adres: cp.adres, zar: sonuc.etki.zar, toplam: sonuc.etki.toplam,
             yeniKonum: sonuc.etki.yeniKonum, etki: sonuc.etki,
             durum: sonuc.durum, mesaj: sonuc.etki.mesaj,
         })
         const botSohbetler = ['Hesaplıyorum... 🤖', 'Benim zar sıram!', 'Haydi!', 'Mükemmel strateji!']
-        if (Math.random() < 0.35) io.to(roomId).emit('sohbet-mesaji', { adres: cp.adres, mesaj: botSohbetler[Math.floor(Math.random() * botSohbetler.length)], zaman: Date.now() })
+        if (Math.random() < 0.35 && b.faz === 'zar') {
+            io.to(roomId).emit('sohbet-mesaji', { adres: cp.adres, mesaj: botSohbetler[Math.floor(Math.random() * botSohbetler.length)], zaman: Date.now() })
+        }
+
+        if (sonuc.etki.bekliyor) {
+            // Dal seçimi için tekrar botu çağır
+            setTimeout(() => botSirasiIsle(io, rooms, roomId), 1500)
+            return
+        }
 
         if (sonuc.etki.miniGameBasla) {
             const rm = rooms.get(roomId)

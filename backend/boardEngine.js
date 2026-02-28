@@ -35,31 +35,48 @@ const SILAHLAR = [
     { id: 'kanguru', isim: 'Kanguru Zıplaması', ikon: '🦘' },
 ]
 
-// ─── Board Karoları ────────────────────────────────────────────────────────────
-// 48 karo, tipler: start | normal | anahtar | tuzak | heal | portal
-const KARO_TIPLERI = [
-    'start', 'normal', 'anahtar', 'normal', 'tuzak', 'anahtar', // 0-5
-    'normal', 'normal', 'anahtar', 'tuzak', 'normal', 'heal',    // 6-11
-    'normal', 'anahtar', 'tuzak', 'normal',              // 12-15   corner/col
-    'normal', 'heal',              // 16-17   corner/col
-    'normal', 'anahtar', 'tuzak', 'normal', 'anahtar', 'normal',  // 18-23
-    'tuzak', 'anahtar', 'normal', 'anahtar', 'tuzak', 'normal',   // 24-29
-    'heal', 'normal', 'anahtar', 'normal',             // 30-33   corner/col
-    'normal', 'heal',              // 34-35   corner/col
-    'normal', 'anahtar', 'tuzak', 'normal', 'anahtar', 'normal',  // 36-41
-    'tuzak', 'anahtar', 'normal', 'normal', 'anahtar', 'normal',  // 42-47
-]
+// ─── Board Karoları (192 Node Graph) ─────────────────────────────────────────
+// Yol bir array degil, id bazli bir graph.
+// T=Tuzak, H=Heal, A=Anahtar, N=Normal
+const _pattern = ['normal', 'normal', 'anahtar', 'tuzak', 'heal', 'normal', 'anahtar'];
+const KARO_GRAPH = {};
+
+for (let i = 0; i < 192; i++) {
+    KARO_GRAPH[i] = {
+        id: i,
+        tip: i === 0 ? 'start' : _pattern[i % 7],
+        next: [(i + 1) % 192] // varsayılan yol
+    };
+}
+// Dal (Branch) Eklemeleri:
+// 1. Dal (30 -> 192 -> 193 -> 194 -> 35)
+KARO_GRAPH[30].next.push(192);
+KARO_GRAPH[192] = { id: 192, tip: 'tuzak', next: [193] };
+KARO_GRAPH[193] = { id: 193, tip: 'anahtar', next: [194] };
+KARO_GRAPH[194] = { id: 194, tip: 'heal', next: [35] };
+
+// 2. Dal (80 -> 195 -> 196 -> 85)
+KARO_GRAPH[80].next.push(195);
+KARO_GRAPH[195] = { id: 195, tip: 'anahtar', next: [196] };
+KARO_GRAPH[196] = { id: 196, tip: 'normal', next: [85] };
+
+// 3. Dal (140 -> 197 -> 198 -> 199 -> 145)
+KARO_GRAPH[140].next.push(197);
+KARO_GRAPH[197] = { id: 197, tip: 'heal', next: [198] };
+KARO_GRAPH[198] = { id: 198, tip: 'tuzak', next: [199] };
+KARO_GRAPH[199] = { id: 199, tip: 'anahtar', next: [145] };
+
+const TOPLAM_KARO = Object.keys(KARO_GRAPH).length;
 
 const KARO_ISIMLER = {
     start: 'Başlangıç', normal: 'Normal', anahtar: '+5 Anahtar',
-    tuzak: 'Tuzak', heal: 'Şifa', portal: 'Portal',
+    tuzak: 'Tuzak (-20 HP)', heal: 'Şifa (+20 HP)', portal: 'Portal',
 }
 
-const TOPLAM_KARO = 48
 const KASA_ANAHTAR = 40  // kasa açmak için gereken anahtar
 const BASLANGGIC_ANAHTAR = 40
 const KASA_KAZANMAK = 3  // kaç kasa açılınca kazanılır
-const MAX_HP = 3
+const MAX_HP = 100
 
 // ─── State ────────────────────────────────────────────────────────────────────
 const boardStates = new Map()
@@ -148,32 +165,92 @@ function initialRoll(roomId, adres) {
     return { tamam: true, siraBelirli: false, mesaj: `${oyuncu.isim} ${z1 + z2} attı`, durum: getSafeDurum(state) }
 }
 
-// ─── Zar At ───────────────────────────────────────────────────────────────────
+// ─── Zar At & İlerle ──────────────────────────────────────────────────────────
 function zarAt(roomId, adres) {
     const state = boardStates.get(roomId)
     if (!state || state.faz !== 'zar') return { hata: 'Yanlış faz: ' + state.faz }
 
     const mevcutOyuncu = state.oyuncular[state.tur]
     if (!mevcutOyuncu) return { hata: 'Oyuncu yok' }
-    if (mevcutOyuncu.adres !== adres) return { hata: 'Senin sıran değil', mevcutSira: mevcutOyuncu.adres }
+    if (mevcutOyuncu.adres !== adres) return { hata: 'Senin sıran değil' }
 
     const z1 = r6(), z2 = r6(), toplam = z1 + z2
     state.sonZar = [z1, z2]
 
-    const eskiKonum = mevcutOyuncu.konum
-    const yeniKonum = (eskiKonum + toplam) % TOPLAM_KARO
-    mevcutOyuncu.konum = yeniKonum
+    return ilerletOyuncu(state, mevcutOyuncu, toplam, true)
+}
 
-    const karoTip = KARO_TIPLERI[yeniKonum]
-    let etki = { tip: karoTip, zar: [z1, z2], toplam, eskiKonum, yeniKonum }
+function secimYapVeIlerle(roomId, adres, secilenYolId) {
+    const state = boardStates.get(roomId)
+    if (!state || state.faz !== 'branch_choice') return { hata: 'Seçim fazında değiliz' }
 
-    // Karo efekti
+    const mevcutOyuncu = state.oyuncular[state.tur]
+    if (mevcutOyuncu.adres !== adres) return { hata: 'Senin sıran değil' }
+
+    // Geçerli yol mu?
+    const simdikiKaro = KARO_GRAPH[mevcutOyuncu.konum]
+    if (!simdikiKaro.next.includes(secilenYolId)) return { hata: 'Geçersiz yol seçimi' }
+
+    // Adımı at ve kalanları oyna
+    mevcutOyuncu.konum = secilenYolId
+    const kalan = mevcutOyuncu.kalanZar - 1
+    mevcutOyuncu.kalanZar = 0
+    state.faz = 'zar' // normal işleyişe dön
+
+    return ilerletOyuncu(state, mevcutOyuncu, kalan, false)
+}
+
+function ilerletOyuncu(state, mevcutOyuncu, toplamAdim, ilkZarAtisiMi) {
+    const adres = mevcutOyuncu.adres
+    let adimDurdu = false
+    let kalan = toplamAdim
+    let eskiKonum = mevcutOyuncu.konum
+    let gectigiYollar = []
+
+    if (ilkZarAtisiMi) {
+        state.kayit.push(`${mevcutOyuncu.isim} zar attı: ${state.sonZar[0]}+${state.sonZar[1]}=${toplamAdim}`)
+    }
+
+    while (kalan > 0) {
+        const karo = KARO_GRAPH[mevcutOyuncu.konum]
+        if (karo.next.length === 0) break // çıkmaz sokak (olmamalı)
+        if (karo.next.length === 1) {
+            mevcutOyuncu.konum = karo.next[0]
+            gectigiYollar.push(mevcutOyuncu.konum)
+            kalan--
+        } else {
+            // Yol Ayrımı!
+            mevcutOyuncu.kalanZar = kalan
+            state.faz = 'branch_choice'
+            adimDurdu = true
+            break
+        }
+    }
+
+    let etki = {
+        zar: state.sonZar,
+        toplam: toplamAdim,
+        eskiKonum,
+        yeniKonum: mevcutOyuncu.konum,
+        gectigiYollar,
+        bekliyor: adimDurdu
+    }
+
+    if (adimDurdu) {
+        etki.mesaj = `${mevcutOyuncu.isim} yol ayrımına geldi! Seçim bekleniyor... (${kalan} adım kaldı)`
+        return { tamam: true, durum: getSafeDurum(state), etki }
+    }
+
+    // Hareket bitti, hedef karonun efektini uygula
+    const karoTip = KARO_GRAPH[mevcutOyuncu.konum].tip
+    etki.tip = karoTip
+
     if (karoTip === 'anahtar') {
         mevcutOyuncu.anahtar += 5
-        etki.mesaj = `🗝️ ${mevcutOyuncu.isim} ${z1}+${z2}=${toplam} attı → +5 Anahtar! (${mevcutOyuncu.anahtar} anahtar)`
+        etki.mesaj = `🗝️ Yola ulaştı → +5 Anahtar! (${mevcutOyuncu.anahtar} anahtar)`
     } else if (karoTip === 'tuzak') {
-        mevcutOyuncu.hp = Math.max(0, mevcutOyuncu.hp - 1)
-        etki.mesaj = `💀 ${mevcutOyuncu.isim} ${z1}+${z2}=${toplam} attı → TUZAK! -1 Can (${mevcutOyuncu.hp}/${MAX_HP})`
+        mevcutOyuncu.hp = Math.max(0, mevcutOyuncu.hp - 20)
+        etki.mesaj = `💀 TUZAK! -20 Can (${mevcutOyuncu.hp}/${MAX_HP})`
         if (mevcutOyuncu.hp <= 0) {
             mevcutOyuncu.elendi = true; etki.elendi = adres
             etki.mesaj += ` — ${mevcutOyuncu.isim} ELENDI!`
@@ -181,14 +258,14 @@ function zarAt(roomId, adres) {
             if (saglar.length === 1) { state.faz = 'bitti'; state.kazanan = saglar[0].adres; etki.kazanan = saglar[0].adres }
         }
     } else if (karoTip === 'heal') {
-        mevcutOyuncu.hp = Math.min(MAX_HP, mevcutOyuncu.hp + 1)
-        etki.mesaj = `❤️ ${mevcutOyuncu.isim} ${z1}+${z2}=${toplam} attı → ŞİFA! +1 Can (${mevcutOyuncu.hp}/${MAX_HP})`
+        mevcutOyuncu.hp = Math.min(MAX_HP, mevcutOyuncu.hp + 20)
+        etki.mesaj = `❤️ ŞİFA! +20 Can (${mevcutOyuncu.hp}/${MAX_HP})`
     } else {
-        etki.mesaj = `${mevcutOyuncu.isim} ${z1}+${z2}=${toplam} attı → ${KARO_ISIMLER[karoTip] || 'Normal'}`
+        etki.mesaj = `Üzerinde durduğu mermer: ${KARO_ISIMLER[karoTip] || 'Normal'}`
     }
 
-    // Kasa kontrolü: üzerinden geçiyor mu?
-    if (yeniKonum === state.kasaTileId && mevcutOyuncu.anahtar >= KASA_ANAHTAR && !etki.kazanan) {
+    // Kasa kontrolü
+    if (mevcutOyuncu.konum === state.kasaTileId && mevcutOyuncu.anahtar >= KASA_ANAHTAR && !etki.kazanan) {
         mevcutOyuncu.anahtar -= KASA_ANAHTAR
         mevcutOyuncu.kasalar++
         etki.kasaAcildi = adres
@@ -196,7 +273,7 @@ function zarAt(roomId, adres) {
         if (mevcutOyuncu.kasalar >= KASA_KAZANMAK) {
             state.faz = 'bitti'; state.kazanan = adres; etki.kazanan = adres
         } else {
-            kasaSpawn(state) // yeni kasa konumlan
+            kasaSpawn(state) // Orijinal fonksiyonu aşağıda güncelleyeceğiz
         }
     }
 
@@ -206,9 +283,8 @@ function zarAt(roomId, adres) {
     if (!etki.kazanan) {
         state.roundAtanlar.push(adres)
         const sagOyuncular = state.oyuncular.filter(o => !o.elendi)
-
-        // Herkes bu turda attı mı?
         const hepsAtmis = sagOyuncular.every(o => state.roundAtanlar.includes(o.adres))
+
         if (hepsAtmis) {
             state.faz = 'mini_game'
             state.roundAtanlar = []
@@ -267,7 +343,7 @@ function getSafeDurum(state) {
         kazanan: state.kazanan,
         sonZar: state.sonZar,
         kayit: state.kayit.slice(-15),
-        karoTipleri: KARO_TIPLERI,
+        karoTipleri: KARO_GRAPH,
         kasaTileId: state.kasaTileId,
         roundNo: state.roundNo,
         roundAtanlar: state.roundAtanlar,
@@ -277,7 +353,7 @@ function getSafeDurum(state) {
 function r6() { return Math.floor(Math.random() * 6) + 1 }
 
 module.exports = {
-    KARO_TIPLERI, KARO_ISIMLER, SILAHLAR, TOPLAM_KARO, KASA_ANAHTAR, KASA_KAZANMAK, MAX_HP, BASLANGGIC_ANAHTAR,
+    KARO_GRAPH, KARO_ISIMLER, SILAHLAR, TOPLAM_KARO, KASA_ANAHTAR, KASA_KAZANMAK, MAX_HP, BASLANGGIC_ANAHTAR,
     createBoardState, getBoardState, cleanupBoardState,
-    initialRoll, zarAt, miniGameBitti, getSafeDurum,
+    initialRoll, zarAt, secimYapVeIlerle, miniGameBitti, getSafeDurum,
 }

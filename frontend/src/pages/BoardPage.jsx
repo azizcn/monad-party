@@ -184,7 +184,7 @@ export default function BoardPage() {
                     </div>
                 )}
 
-                {/* Harita */}
+                // Harita
                 {oyunDurumu === 'oyunda' && !atYarisiAktif && (
                     <>
                         <Board
@@ -194,8 +194,12 @@ export default function BoardPage() {
                             address={address}
                             onRollDice={handleZar}
                             onInitialRoll={handleIlkZar}
+                            onChooseBranch={(secilenYolId) => {
+                                socketRef.current.emit('choose-branch', { walletAddress: address, secilenYolId })
+                            }}
                             isMyTurn={benimSiram}
                             isInitialRollPhase={ilkZarFazi}
+                            isBranchChoicePhase={boardState?.faz === 'branch_choice'}
                             sonZar={sonZar}
                             zarAnimasyon={zarAnimasyon}
                         />
@@ -256,7 +260,7 @@ export default function BoardPage() {
                                             {sıradam && <span style={{ color: 'var(--color-yellow)', marginLeft: '0.25rem' }}>🎲</span>}
                                         </div>
                                         <div style={{ display: 'flex', gap: '0.4rem', fontSize: '0.55rem', color: 'var(--color-text-dim)', marginTop: '0.1rem' }}>
-                                            <span>❤️{bp?.hp || 0}/3</span>
+                                            <span>❤️{bp?.hp || 0}/100</span>
                                             <span>🗝️{bp?.anahtar || 0}</span>
                                             <span>🎁{bp?.kasalar || 0}</span>
                                             {bp?.silah && <span title={bp.silah.isim}>{bp.silah.ikon}</span>}

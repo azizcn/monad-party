@@ -81,35 +81,38 @@ function calculateSpeedModifier(personality, message, raceContext = {}) {
         case 'hothead': {
             const angered = TRIGGER_KEYWORDS.hothead.anger.some(kw => msg.includes(kw))
             const calmed = TRIGGER_KEYWORDS.hothead.calm.some(kw => msg.includes(kw))
-            if (angered) return { modifier: 2.8, emotion: 'angry', duration: 6000 }
-            if (calmed) return { modifier: 0.9, emotion: 'calm', duration: 4000 }
+            if (angered) return { modifier: 4.5, emotion: 'angry', duration: 8000 } // Super fast when angry
+            if (calmed) return { modifier: 0.2, emotion: 'calm', duration: 5000 } // Stops when tried to be calmed
             return { modifier: 1.0, emotion: 'neutral', duration: 0 }
         }
         case 'stubborn': {
             const commanded = TRIGGER_KEYWORDS.stubborn.commands.some(kw => msg.includes(kw))
             if (msg.includes('fast') || msg.includes('go') || msg.includes('run')) {
-                return { modifier: 0.4, emotion: 'defiant', duration: 4000 }
+                return { modifier: -0.5, emotion: 'defiant', duration: 5000 } // Literally goes backwards
             }
             if (msg.includes('slow') || msg.includes('stop')) {
-                return { modifier: 2.2, emotion: 'defiant', duration: 4000 }
+                return { modifier: 3.5, emotion: 'defiant', duration: 5000 } // Rushes forward
             }
+            if (commanded) return { modifier: 0.1, emotion: 'defiant', duration: 4000 }
             return { modifier: 1.0, emotion: 'neutral', duration: 0 }
         }
         case 'lazy': {
             const praised = TRIGGER_KEYWORDS.lazy.praise.some(kw => msg.includes(kw))
-            if (praised) return { modifier: 1.8, emotion: 'motivated', duration: 5000 }
-            return { modifier: 0.5, emotion: 'sleepy', duration: 3000 }
+            if (praised) return { modifier: 2.2, emotion: 'motivated', duration: 6000 }
+            return { modifier: 0.1, emotion: 'sleepy', duration: 4000 } // Near stop otherwise
         }
         case 'gentle': {
             const praised = TRIGGER_KEYWORDS.gentle.praise.some(kw => msg.includes(kw))
             const harsh = TRIGGER_KEYWORDS.gentle.harsh.some(kw => msg.includes(kw))
-            if (praised) return { modifier: 2.0, emotion: 'happy', duration: 5000 }
-            if (harsh) return { modifier: 0.3, emotion: 'sad', duration: 5000 }
+            if (praised) return { modifier: 3.0, emotion: 'happy', duration: 6000 }
+            if (harsh) return { modifier: 0.1, emotion: 'sad', duration: 6000 } // Cries and stops
             return { modifier: 1.1, emotion: 'content', duration: 2000 }
         }
         case 'competitive': {
-            if (isLast) return { modifier: 2.5, emotion: 'determined', duration: 5000 }
-            if (isLeading) return { modifier: 1.2, emotion: 'cocky', duration: 3000 }
+            if (isLast) return { modifier: 4.0, emotion: 'determined', duration: 6000 } // Massive rubberband
+            if (isLeading) return { modifier: 0.8, emotion: 'cocky', duration: 4000 }
+            const praised = TRIGGER_KEYWORDS.lazy.praise.some(kw => msg.includes(kw))
+            if (praised) return { modifier: 1.8, emotion: 'focused', duration: 4000 }
             return { modifier: 1.5, emotion: 'focused', duration: 3000 }
         }
         default:

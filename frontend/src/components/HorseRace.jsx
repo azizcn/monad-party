@@ -21,77 +21,90 @@ const JOKEY_RENK = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6', '#1ab
 const DUYGU_IKON = { angry: '🔥', calm: '😌', happy: '😊', sad: '😢', defiant: '😤', motivated: '💪', sleepy: '💤', determined: '⚡', focused: '🎯', cocky: '😏', neutral: '' }
 const KISILIK_ISIM = { hothead: 'Ateşli', stubborn: 'İnatçı', lazy: 'Tembel', gentle: 'Nazik', competitive: 'Hırslı' }
 
-function atCiz(ctx, x, y, seriH, atRenk, jokeyRenk, duygu, kare, isim, bitti) {
-    const kanat = Math.sin(kare * 0.4) * 5  // bacak titremesi
+// Yandan Bakış At Çizimi (Pixel-Art esintili side-view)
+function atCiz(ctx, x, y, atRenk, jokeyRenk, duygu, kare, isim, bitti) {
+    // 2 frame'lik basit koşu animasyonu (kare bazlı)
+    const isFrame1 = Math.floor(kare / 6) % 2 === 0
+    const bacakAcisi = bitti ? 0 : (isFrame1 ? 5 : -5)
+
     ctx.save()
     ctx.translate(x, y)
 
-    // Gölge
-    ctx.fillStyle = 'rgba(0,0,0,0.2)'
-    ctx.beginPath(); ctx.ellipse(0, 18, 28, 6, 0, 0, Math.PI * 2); ctx.fill()
+    // Duygu (Tepede)
+    if (duygu && DUYGU_IKON[duygu]) {
+        ctx.font = '16px serif'; ctx.textAlign = 'center'
+        ctx.fillText(DUYGU_IKON[duygu], -10, -35)
+    }
+    if (bitti) {
+        ctx.font = '20px serif'; ctx.textAlign = 'center'
+        ctx.fillText('🏆', -10, -45)
+    }
 
-    // At gövdesi (yatay oval)
-    const govdeShadow = duygu !== 'neutral' && duygu ? 12 : 4
+    // Gövde (Gölge)
+    ctx.fillStyle = 'rgba(0,0,0,0.3)'
+    ctx.beginPath(); ctx.ellipse(-5, 20, 18, 5, 0, 0, Math.PI * 2); ctx.fill()
+
     ctx.shadowColor = AT_RENK[duygu] || atRenk || '#8B4513'
-    ctx.shadowBlur = govdeShadow
+    ctx.shadowBlur = duygu !== 'neutral' ? 10 : 0
+
+    // Arka Bacaklar (Geri Planda daha koyu)
+    ctx.fillStyle = '#4a2511'
+    ctx.fillRect(-15 + bacakAcisi, 5, 5, 15) // Arka Sol
+    ctx.fillRect(5 - bacakAcisi, 5, 4, 14)  // Ön Sol
+
+    // Gövde ana
     ctx.fillStyle = atRenk || '#8B4513'
-    ctx.beginPath(); ctx.ellipse(0, 0, 30, 13, 0, 0, Math.PI * 2); ctx.fill()
+    ctx.beginPath(); ctx.ellipse(-5, 0, 20, 10, 0, 0, Math.PI * 2); ctx.fill()
+
+    // Boyun ve Baş
+    ctx.beginPath()
+    ctx.moveTo(8, -2)
+    ctx.lineTo(20, -18) // kulak bölgesi
+    ctx.lineTo(26, -14) // burun
+    ctx.lineTo(15, -2)
+    ctx.fill()
     ctx.shadowBlur = 0
 
-    // At başı (sağda — bitiş yönü)
+    // Ön Bacaklar
     ctx.fillStyle = atRenk || '#8B4513'
-    ctx.beginPath(); ctx.ellipse(32, -2, 10, 7, -0.3, 0, Math.PI * 2); ctx.fill()
+    ctx.fillRect(-10 - bacakAcisi, 5, 5, 15) // Arka Sağ
+    ctx.fillRect(10 + bacakAcisi, 5, 5, 15)  // Ön Sağ
 
-    // Burun
-    ctx.fillStyle = 'rgba(0,0,0,0.3)'
-    ctx.beginPath(); ctx.ellipse(40, 0, 3, 2, 0, 0, Math.PI * 2); ctx.fill()
-
-    // Yele (karanlık şerit)
-    ctx.fillStyle = 'rgba(0,0,0,0.4)'
-    ctx.fillRect(-5, -13, 18, 5)
-
-    // Kuyruk (solda)
+    // Göz ve Burun
+    ctx.fillStyle = '#000'
+    ctx.fillRect(20, -14, 2, 2)
     ctx.fillStyle = 'rgba(0,0,0,0.5)'
-    ctx.beginPath(); ctx.ellipse(-33, 0, 8, 4, 0.4, 0, Math.PI * 2); ctx.fill()
+    ctx.fillRect(24, -12, 2, 2)
 
-    // Bacaklar (4 adet, animasyonlu)
-    ctx.fillStyle = '#5a3300'
-    // Ön bacaklar
-    ctx.beginPath(); ctx.ellipse(16, 13 + kanat, 4, 10, 0.1, 0, Math.PI * 2); ctx.fill()
-    ctx.beginPath(); ctx.ellipse(16, -13 - kanat, 4, 10, -0.1, 0, Math.PI * 2); ctx.fill()
-    // Arka bacaklar
-    ctx.beginPath(); ctx.ellipse(-16, 13 - kanat, 4, 10, 0.2, 0, Math.PI * 2); ctx.fill()
-    ctx.beginPath(); ctx.ellipse(-16, -13 + kanat, 4, 10, -0.2, 0, Math.PI * 2); ctx.fill()
+    // Yele
+    ctx.fillStyle = '#2d1406'
+    ctx.beginPath()
+    ctx.moveTo(4, -4); ctx.lineTo(16, -18); ctx.lineTo(10, -18); ctx.lineTo(0, -6); ctx.fill()
 
-    // Jokay
+    // Kuyruk
+    ctx.beginPath()
+    ctx.moveTo(-22, -4); ctx.lineTo(-32, 5 + bacakAcisi); ctx.lineTo(-24, 8); ctx.fill()
+
+    // Jokey
     ctx.fillStyle = jokeyRenk
-    ctx.beginPath(); ctx.ellipse(-5, -12, 11, 8, 0, 0, Math.PI * 2); ctx.fill()
-
-    // Jokey kaskı
-    ctx.fillStyle = 'rgba(255,255,255,0.6)'
-    ctx.beginPath(); ctx.arc(-5, -18, 6, Math.PI, 0); ctx.fill()
-
-    // Bitti işareti
-    if (bitti) {
-        ctx.font = '18px serif'; ctx.textAlign = 'center'
-        ctx.fillText('🏆', 0, -30)
-    }
-
-    // Duygu
-    if (duygu && DUYGU_IKON[duygu]) {
-        ctx.font = '14px serif'; ctx.textAlign = 'center'
-        ctx.fillText(DUYGU_IKON[duygu], 30, -22)
-    }
+    // Gövde
+    ctx.beginPath(); ctx.ellipse(-5, -12, 6, 8, 0.2, 0, Math.PI * 2); ctx.fill()
+    // Baş (Kask)
+    ctx.fillStyle = 'white'
+    ctx.beginPath(); ctx.arc(-2, -22, 5, 0, Math.PI * 2); ctx.fill()
+    ctx.fillStyle = '#000' // Vizör
+    ctx.fillRect(-1, -24, 4, 3)
 
     ctx.restore()
 
-    // İsim etiketi
-    ctx.fillStyle = 'rgba(0,0,0,0.6)'
-    ctx.fillRect(x - 35, y - seriH / 2 + 4, 70, 16)
+    // İsim etiketi (Altında)
+    ctx.fillStyle = 'rgba(0,0,0,0.7)'
+    const metinG = 40
+    ctx.fillRect(x - 25, y + 25, 40, 12)
     ctx.fillStyle = '#fff'
-    ctx.font = 'bold 9px monospace'
+    ctx.font = 'bold 8px monospace'
     ctx.textAlign = 'center'
-    ctx.fillText(isim.slice(0, 10), x, y - seriH / 2 + 15)
+    ctx.fillText(isim.slice(0, 10), x - 5, y + 34)
 }
 
 export default function HorseRace({ atlar = [], onYarisBitti }) {
@@ -99,10 +112,11 @@ export default function HorseRace({ atlar = [], onYarisBitti }) {
     const canvasRef = useRef(null)
     const rafRef = useRef(null)
     const kareRef = useRef(0)
+    const bgOffsetRef = useRef(0)
     const [sohbet, setSohbet] = useState('')
     const [sohbetLog, setSohbetLog] = useState([])
     const [bitis, setBitis] = useState(null)
-    const [kalan, setKalan] = useState(35)
+    const [kalan, setKalan] = useState(60)
     const timerRef = useRef(null)
     const baslangicRef = useRef(Date.now())
 
@@ -114,7 +128,7 @@ export default function HorseRace({ atlar = [], onYarisBitti }) {
         baslangicRef.current = Date.now()
         timerRef.current = setInterval(() => {
             const gecen = Math.floor((Date.now() - baslangicRef.current) / 1000)
-            const k = Math.max(0, 35 - gecen)
+            const k = Math.max(0, 60 - gecen)
             setKalan(k)
             if (k <= 0) { clearInterval(timerRef.current); handleYarisBitti() }
         }, 1000)
@@ -140,101 +154,106 @@ export default function HorseRace({ atlar = [], onYarisBitti }) {
         setBitis(sonAtar[0]?.playerAddress)
     }
 
-    // Oyun döngüsü — düz pist çizimi
+    // Oyun döngüsü — Parallax Side View
     useEffect(() => {
         const canvas = canvasRef.current
         if (!canvas || !atlar.length) return
         const ctx = canvas.getContext('2d')
-        const YUKSEKLIK = atlar.length * SERI_Y + SERI_PAD * 2
-        canvas.width = PIST_W; canvas.height = YUKSEKLIK
+        const viewW = canvas.clientWidth, viewH = canvas.clientHeight
+        canvas.width = viewW; canvas.height = viewH
+
+        const Y_SPACING = (viewH - 120) / atlar.length
 
         const loop = () => {
             kareRef.current++
-            ctx.clearRect(0, 0, PIST_W, YUKSEKLIK)
+            bgOffsetRef.current += 1.5 // Arka plan kayma hızı
+            ctx.clearRect(0, 0, viewW, viewH)
 
-            // Çim kenarlar
-            ctx.fillStyle = '#2d8a2d'
-            ctx.fillRect(0, 0, PIST_W, SERI_PAD)
-            ctx.fillRect(0, YUKSEKLIK - SERI_PAD, PIST_W, SERI_PAD)
+            // 1. Gökyüzü ve Uzak Arka Plan (Sabit)
+            const grad = ctx.createLinearGradient(0, 0, 0, viewH)
+            grad.addColorStop(0, '#87CEEB'); grad.addColorStop(1, '#E0F6FF')
+            ctx.fillStyle = grad; ctx.fillRect(0, 0, viewW, viewH)
 
-            // Pist zemin (kum/toprak rengi)
-            const pistGrad = ctx.createLinearGradient(0, SERI_PAD, 0, YUKSEKLIK - SERI_PAD)
-            pistGrad.addColorStop(0, '#c8a96e')
-            pistGrad.addColorStop(0.5, '#d4b483')
-            pistGrad.addColorStop(1, '#c8a96e')
-            ctx.fillStyle = pistGrad
-            ctx.fillRect(0, SERI_PAD, PIST_W, YUKSEKLIK - SERI_PAD * 2)
+            // Bulutlar Parallax
+            ctx.fillStyle = 'rgba(255,255,255,0.7)'
+            const cloudOffset = (bgOffsetRef.current * 0.2) % viewW
+            for (let i = 0; i < 3; i++) {
+                ctx.beginPath(); ctx.arc((i * 300 - cloudOffset + viewW) % viewW, 40 + (i % 2) * 20, 30, 0, Math.PI * 2); ctx.fill()
+                ctx.beginPath(); ctx.arc((i * 300 - cloudOffset + viewW) % viewW + 30, 40 + (i % 2) * 20, 20, 0, Math.PI * 2); ctx.fill()
+                ctx.beginPath(); ctx.arc((i * 300 - cloudOffset + viewW) % viewW - 20, 45 + (i % 2) * 20, 25, 0, Math.PI * 2); ctx.fill()
+            }
 
-            // Pist çizgileri (şeritleri ayır)
-            atlar.forEach((_, i) => {
-                if (i > 0) {
-                    ctx.strokeStyle = 'rgba(255,255,255,0.25)'
-                    ctx.lineWidth = 1.5
-                    ctx.setLineDash([12, 8])
-                    const y = SERI_PAD + i * SERI_Y
-                    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(PIST_W, y); ctx.stroke()
-                    ctx.setLineDash([])
+            // 2. Uzak Ağaçlar Parallax
+            const treeOffset = (bgOffsetRef.current * 0.5) % 100
+            for (let x = -treeOffset; x < viewW; x += 100) {
+                ctx.fillStyle = '#228B22'
+                ctx.beginPath(); ctx.moveTo(x + 20, 80); ctx.lineTo(x + 50, 20); ctx.lineTo(x + 80, 80); ctx.fill()
+                ctx.fillStyle = '#1e751e'
+                ctx.beginPath(); ctx.moveTo(x + 50, 20); ctx.lineTo(x + 80, 80); ctx.lineTo(x + 50, 80); ctx.fill()
+                ctx.fillStyle = '#4a2511'
+                ctx.fillRect(x + 45, 80, 10, 20)
+            }
+
+            // 3. Zemin Çimenleri
+            ctx.fillStyle = '#32CD32'
+            ctx.fillRect(0, 100, viewW, viewH - 100)
+
+            // Hızlı geçen zemin çizgileri (hız hissi)
+            ctx.fillStyle = '#228B22'
+            const lineOffset = bgOffsetRef.current % 40
+            for (let y = 120; y < viewH; y += 30) {
+                for (let x = -lineOffset; x < viewW; x += 80) {
+                    ctx.fillRect(x, y, 20 + Math.random() * 20, 2)
                 }
-            })
+            }
 
-            // Mesafe işaretleri
-            for (let x = 100; x < PIST_W - 60; x += 150) {
-                ctx.strokeStyle = 'rgba(255,255,255,0.15)'
-                ctx.lineWidth = 1
-                ctx.setLineDash([4, 4])
-                ctx.beginPath(); ctx.moveTo(x, SERI_PAD); ctx.lineTo(x, YUKSEKLIK - SERI_PAD); ctx.stroke()
+            // Bitiş Çizgisi Hedefi
+            const finishLineX = viewW - 100
+            if (kalan < 50 || atlar.some(a => (atKonumlar?.[a.playerAddress]?.position ?? 0) > 80)) {
+                ctx.strokeStyle = '#fff'; ctx.lineWidth = 4; ctx.setLineDash([10, 10])
+                ctx.beginPath(); ctx.moveTo(finishLineX, 100); ctx.lineTo(finishLineX, viewH); ctx.stroke()
                 ctx.setLineDash([])
             }
 
-            // START çizgisi
-            ctx.strokeStyle = 'rgba(255,255,255,0.8)'
-            ctx.lineWidth = 3
-            ctx.beginPath(); ctx.moveTo(START_X, SERI_PAD); ctx.lineTo(START_X, YUKSEKLIK - SERI_PAD); ctx.stroke()
+            // Atları çiz (Side view dizilişi)
+            // Y pozisyonlarını sıralamaya göre biraz dağıt ki üst üste binmesinler
+            const sortedHorses = [...atlar].sort((a, b) => {
+                const posA = atKonumlar?.[a.playerAddress]?.position ?? a.position ?? 0
+                const posB = atKonumlar?.[b.playerAddress]?.position ?? b.position ?? 0
+                return posA - posB // arkadan öne çiz (z-index)
+            })
 
-            // BİTİŞ çizgisi (damalı)
-            for (let y = SERI_PAD; y < YUKSEKLIK - SERI_PAD; y += 10) {
-                ctx.fillStyle = (Math.floor(y / 10)) % 2 === 0 ? '#000' : '#fff'
-                ctx.fillRect(BITIS_X, y, 8, 10)
-            }
-            ctx.fillStyle = '#fff'
-            ctx.font = 'bold 11px monospace'
-            ctx.textAlign = 'center'
-            ctx.fillText('BİTİŞ', BITIS_X + 4, SERI_PAD - 4)
-
-            // Atları çiz
-            atlar.forEach((at, i) => {
+            sortedHorses.forEach((at) => {
+                const i = atlar.findIndex(a => a.playerAddress === at.playerAddress)
                 const pos = atKonumlar?.[at.playerAddress]?.position ?? at.position ?? 0
                 const duygu = atDuygular?.[at.playerAddress] ?? 'neutral'
-                const seriMerkezY = SERI_PAD + i * SERI_Y + SERI_Y / 2
-                const atX = START_X + (pos / 100) * (BITIS_X - START_X - 30)
+
+                // Y ekseni şerit dizilimi: 120'den başlayıp aşağı doğru
+                const yPos = 130 + (i * Y_SPACING)
+
+                // X ekseni: pos'a göre
+                // Bitiş çizgisi viewW - 100'de. %100 orada olacak şekilde ayarla.
+                const atX = 50 + (pos / 100) * (finishLineX - 50)
+
                 const bitmis = atKonumlar?.[at.playerAddress]?.finished || false
                 const isMe = at.playerAddress === address
                 const atRengi = AT_RENK[at.personality] || '#8B4513'
                 const jokeyRengi = JOKEY_RENK[i % 8]
 
-                atCiz(ctx, atX, seriMerkezY, SERI_Y, atRengi, jokeyRengi, duygu, kareRef.current, at.name, bitmis)
-
-                // Benim atım vurgu
+                // Vurgu hale
                 if (isMe) {
-                    ctx.strokeStyle = '#fbbf24'
-                    ctx.lineWidth = 2
-                    ctx.setLineDash([3, 2])
-                    ctx.strokeRect(atX - 38, seriMerkezY - SERI_Y / 2 + 2, 80, SERI_Y - 4)
-                    ctx.setLineDash([])
+                    ctx.fillStyle = 'rgba(251, 191, 36, 0.3)'
+                    ctx.beginPath(); ctx.ellipse(atX - 5, yPos + 20, 30, 8, 0, 0, Math.PI * 2); ctx.fill()
                 }
 
-                // Şerit numarası
-                ctx.fillStyle = 'rgba(255,255,255,0.5)'
-                ctx.font = 'bold 11px monospace'
-                ctx.textAlign = 'center'
-                ctx.fillText(String(i + 1), 25, seriMerkezY + 4)
+                atCiz(ctx, atX, yPos, atRengi, jokeyRengi, duygu, bitmis ? 0 : kareRef.current, at.name, bitmis)
             })
 
             rafRef.current = requestAnimationFrame(loop)
         }
         rafRef.current = requestAnimationFrame(loop)
         return () => cancelAnimationFrame(rafRef.current)
-    }, [atlar, atKonumlar, atDuygular, address])
+    }, [atlar, atKonumlar, atDuygular, address, kalan])
 
     // SPACE = teşvik
     useEffect(() => {
