@@ -34,7 +34,7 @@ function atYarisiBasla(io, roomId, oyuncular) {
         if (!yaris || yaris.bitti) return
         yaris.atlar.forEach(at => {
             if (at.finished) return
-            let hiz = (1.3 + Math.random() * 0.5) / 6  // 6x daha yavaş pist
+            let hiz = 1.3 + Math.random() * 0.5   // orijinal hız (6x bölme kaldırıldı)
             const speedMod = at.speedModifier || 1.0
             hiz *= speedMod
             if (at.personality === 'stubborn' && Math.random() < 0.12) hiz = -hiz * 0.2
@@ -45,14 +45,17 @@ function atYarisiBasla(io, roomId, oyuncular) {
                 if (!yaris.kazanan) {
                     yaris.kazanan = at.playerAddress
                     io.to(roomId).emit('at-bitis', { adres: at.playerAddress, atIsim: at.name })
+                    // İLK BİTİREN YARIŞI BİTİRİR
+                    clearInterval(yaris.interval); yaris.bitti = true
+                    io.to(roomId).emit('at-yarisi-bitti', { kazanan: at.playerAddress })
                 }
             }
         })
         io.to(roomId).emit('at-konumlar', {
             atlar: yaris.atlar.map(a => ({ playerAddress: a.playerAddress, position: a.position, emotion: a.emotion, finished: a.finished, speedMod: a.speedModifier || 1.0 }))
         })
-        const hepsiBitti = yaris.atlar.every(a => a.finished === true) || (Date.now() - yaris.baslangic > 360000)
-        if (hepsiBitti) {
+        const timeout = (Date.now() - yaris.baslangic > 90000)  // 90s timeout
+        if (timeout) {
             clearInterval(yaris.interval); yaris.bitti = true
             const w = yaris.kazanan || yaris.atlar.sort((a, b) => b.position - a.position)[0]?.playerAddress
             io.to(roomId).emit('at-yarisi-bitti', { kazanan: w })

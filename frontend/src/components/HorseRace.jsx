@@ -96,6 +96,15 @@ function atCizSprite(ctx, x, y, imgRef, kare, renk, duygu, isim, bitti, isMe, sc
     }
 
     if (img && img.complete && img.naturalWidth > 0) {
+        // Şeffaf piksellerin üzerine düz arka plan çiz (kareli desen görünmesini önler)
+        ctx.globalCompositeOperation = 'source-over'
+        const bgW = dw + 6, bgH = dh + 6
+        ctx.fillStyle = renk || '#8B4513'
+        ctx.globalAlpha = 0.18
+        ctx.beginPath()
+        ctx.roundRect(-bgW / 2, -bgH * 0.5, bgW, bgH, 8)
+        ctx.fill()
+        ctx.globalAlpha = 1.0
         // Sprite sheet'ten ilgili frame'i çiz
         ctx.drawImage(img, frameIdx * W, 0, W, H, -dw / 2, -dh * 0.5, dw, dh)
     } else {
@@ -137,10 +146,10 @@ export default function HorseRace({ atlar = [], onYarisBitti }) {
     const [sohbet, setSohbet] = useState('')
     const [sohbetLog, setSohbetLog] = useState([])
     const [bitis, setBitis] = useState(null)
-    const [kalan, setKalan] = useState(360)              // 360 saniyelik yarış (6x)
+    const [kalan, setKalan] = useState(90)               // 90 saniyelik yarış
     const timerRef = useRef(null)
     const baslangicRef = useRef(Date.now())
-    const kalanRef = useRef(360)
+    const kalanRef = useRef(90)
 
     const { atSohbetGonder, atTesvik, atKonumlar, atDuygular, atCevaplar } = useGameStore()
     const benimAtim = atlar.find(a => a.playerAddress === address)
@@ -159,7 +168,7 @@ export default function HorseRace({ atlar = [], onYarisBitti }) {
         baslangicRef.current = Date.now()
         timerRef.current = setInterval(() => {
             const gecen = Math.floor((Date.now() - baslangicRef.current) / 1000)
-            const k = Math.max(0, 360 - gecen)
+            const k = Math.max(0, 90 - gecen)
             kalanRef.current = k
             setKalan(k)
             if (k <= 0) { clearInterval(timerRef.current); handleYarisBitti() }
@@ -342,9 +351,9 @@ export default function HorseRace({ atlar = [], onYarisBitti }) {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                         {/* Timer Bar */}
                         <div style={{ position: 'relative', width: 120, height: 14, background: 'rgba(255,255,255,0.1)', borderRadius: 7, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.15)' }}>
-                            <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: `${(kalan / 360) * 100}%`, background: kalan < 60 ? '#ef4444' : kalan < 120 ? '#f59e0b' : '#22c55e', borderRadius: 7, transition: 'width 1s linear,background 0.5s' }} />
+                            <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: `${(kalan / 90) * 100}%`, background: kalan < 20 ? '#ef4444' : kalan < 45 ? '#f59e0b' : '#22c55e', borderRadius: 7, transition: 'width 1s linear,background 0.5s' }} />
                         </div>
-                        <div style={{ fontFamily: 'var(--font-orbitron)', fontSize: '0.78rem', color: kalan < 60 ? 'var(--color-red)' : 'var(--color-cyan-light)', minWidth: 36 }}>
+                        <div style={{ fontFamily: 'var(--font-orbitron)', fontSize: '0.78rem', color: kalan < 20 ? 'var(--color-red)' : 'var(--color-cyan-light)', minWidth: 36 }}>
                             ⏱️ {kalan}s
                         </div>
                         <div style={{ fontSize: '0.65rem', color: 'var(--color-text-dim)' }}>SPACE=Teşvik</div>

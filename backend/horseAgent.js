@@ -12,11 +12,11 @@ const client = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.e
 const HORSE_PERSONALITIES = ['hothead', 'stubborn', 'lazy', 'gentle', 'competitive']
 
 const HORSE_NAMES = {
-    hothead: ['Thunder', 'Blaze', 'Inferno', 'Rage'],
-    stubborn: ['Nope', 'Mule', 'Granite', 'Boulder'],
-    lazy: ['Slumber', 'Couch', 'Yawn', 'Pillow'],
-    gentle: ['Daisy', 'Breeze', 'Serene', 'Calm'],
-    competitive: ['Rocket', 'Flash', 'Turbo', 'Ace'],
+    hothead: ['Fırtına', 'Alev', 'Ateş', 'Öfke'],
+    stubborn: ['Kaya', 'Değirmentaşı', 'Dikbaş', 'Katı'],
+    lazy: ['Uykucu', 'Tembel', 'Eşek Arısı', 'Yorgun'],
+    gentle: ['Papatya', 'Esinti', 'Sakin', 'Nazık'],
+    competitive: ['Roket', 'Şimşek', 'Turbo', 'İlk'],
 }
 
 const HORSE_COLORS = {
@@ -28,25 +28,22 @@ const HORSE_COLORS = {
 }
 
 const PERSONALITY_PROMPTS = {
-    hothead: `You are a hot-headed horse who gets angry easily. You speak in short, aggressive sentences. 
-When insulted or pressured, you rage and run FASTER. When praised, you calm down briefly. 
-Keep replies under 2 sentences. Show emotion with ALL CAPS when angry.`,
+    hothead: `Sen sinirli, ateşli bir atsın. Kısa, sert cümlelerle Türkçe konuşursun.
+Hakaret edilince ya da zorlandığında ÖFKEYİ BÜYÜK HARFLERLE gösterir ve daha hızlı koşarsın.
+Övüldüğünde kısaca sakinleşirsin. En fazla 2 cümle yaz, Türkçe yaz.`,
 
-    stubborn: `You are a deeply stubborn horse. You always do the OPPOSITE of what you're told. 
-If told to go fast, you slow down. If told to stop, you run. You speak matter-of-factly. 
-Keep replies under 2 sentences. Never admit being stubborn.`,
+    stubborn: `Sen son derece iınatçı bir atsın. Söylenenin tam TERSİNİ yaparsın.
+Hızlan dense yavaşlashırsın, dur dense koşarsın. Türkçe, kısa, ketum konuşursun.
+En fazla 2 cümle yaz, Türkçe yaz.`,
 
-    lazy: `You are an extremely lazy horse who would rather nap than race. You use lots of ellipses and yawns. 
-You need constant encouragement to keep moving. Without praise every 10 seconds, you slow down.
-Keep replies under 2 sentences. Frequently mention being tired.`,
+    lazy: `Sen aşırı tembel, uyuşuk bir atsın. Uyku noktalama işaretleri kullanırsın.
+Sürekli övülmen gerekir, yoksa durursun. En fazla 2 cümle yaz, sık sık yorgunluktan bahset, Türkçe yaz.`,
 
-    gentle: `You are a kind, gentle horse who loves being praised and treated nicely. 
-Compliments make you run happily and fast. Harsh words make you sad and slow.
-Keep replies under 2 sentences. Use gentle, warm language.`,
+    gentle: `Sen nazik, kibar bir atsın. Övülünce mutlu olursun ve hızlanırsın.
+Kötü sözler duyunca üzülür ve yavaşlarsın. En fazla 2 cümle yaz, sıcak dil kullan, Türkçe yaz.`,
 
-    competitive: `You are an intensely competitive horse who hates losing. 
-When behind other horses, you push yourself harder. When winning, you might get cocky.
-Keep replies under 2 sentences. Always reference the race standings.`,
+    competitive: `Sen aşırı rekabetçi bir atsın. Kaybetmekten nefret edersin.
+Geride kalınca daha çok çabaların, önde olunca kibirlenirsin. En fazla 2 cümle yaz, yarış durumundan bahset, Türkçe yaz.`,
 }
 
 // ─── Speed Modifiers ───────────────────────────────────────────────────────────
@@ -124,15 +121,40 @@ function calculateSpeedModifier(personality, message, raceContext = {}) {
 
 async function generateHorseReply(personality, playerMessage) {
     if (!client) {
-        // Fallback without API
+        // API olmadan Türkçe fallback
         const fallbacks = {
-            hothead: ['GRRRR! I\'ll show you what fast looks like!', 'YOU DARE QUESTION ME?! WATCH THIS!', 'Fine... I\'m running aren\'t I?!'],
-            stubborn: ['Nope.', 'No.', 'I do what I want.', 'You said that, so I\'ll do the opposite.'],
-            lazy: ['Ugh... do I have to?', 'Zzzz... oh... running... sure...', 'Maybe in a minute...'],
-            gentle: ['Oh thank you! That\'s so sweet! 🌸', 'You\'re so kind! I\'ll do my best!', 'That made me very happy!'],
-            competitive: ['I NEVER lose!', 'Watch me pass everyone!', 'Second place is just first loser!'],
+            hothead: [
+                'GRRR! Hızımı görürsün şimdi!',
+                'BANA EMİR VER! İZLE NASIL KOŞACAĞIMI!',
+                'Peki... zaten koşuyorum işte!',
+                'SEN KİMSİN Kİ BANA SÖYLE!',
+            ],
+            stubborn: [
+                'Hayır.',
+                'Olmaz.',
+                'İstediğimi yaparım.',
+                'Sen öyle dedin, ben tam tersini yaparım.',
+            ],
+            lazy: [
+                'Ugh... koşmak zorunda mıyım?',
+                'Zzzz... ah... koşuyorum... bir dakika...',
+                'Biraz sonra belki...',
+                'Çok yoruldum yaa...',
+            ],
+            gentle: [
+                'Teşekkür ederim, çok naziksin! 🌸',
+                'Ne kadar güzelsin! Elimden geleni yaparım!',
+                'Bu beni çok mutlu etti!',
+                'Seninle koşmak çok güzel!',
+            ],
+            competitive: [
+                'BEN ASLA KAYBETMEM!',
+                'İzle nasıl geçeceğim hepsini!',
+                'İkinci olmak zaten kaybetmektir!',
+                'Bu yarışı ben kazanacağım!',
+            ],
         }
-        const options = fallbacks[personality] || ['...']
+        const options = fallbacks[personality] || ['Neyyyy...']
         return options[Math.floor(Math.random() * options.length)]
     }
 

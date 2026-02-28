@@ -258,7 +258,7 @@ export default function Board({ karoTipleri = {}, kasaTileId = null, boardState,
 
             const anim = animRef.current[oy.adres]
             if (anim && anim.path && anim.path.length > 0) {
-                anim.progress += 0.08
+                anim.progress += 0.025   // yavaş yürüme (eski: 0.08)
                 if (anim.progress >= 1) { anim.progress = 0; anim.currentIndex++ }
                 if (anim.currentIndex >= anim.path.length - 1) {
                     anim.path = []
