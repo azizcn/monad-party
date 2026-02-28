@@ -35,36 +35,39 @@ const SILAHLAR = [
     { id: 'kanguru', isim: 'Kanguru Zıplaması', ikon: '🦘' },
 ]
 
-// ─── Board Karoları (192 Node Graph) ─────────────────────────────────────────
-// Yol bir array degil, id bazli bir graph.
-// T=Tuzak, H=Heal, A=Anahtar, N=Normal
-const _pattern = ['normal', 'normal', 'anahtar', 'tuzak', 'heal', 'normal', 'anahtar'];
+// ─── Board Karoları — Dairesel Halka Harita (60 karo + 9 dal) ────────────────
+// Frontend boardMapData.js ile tam eşleşen graf.
+// Ana halka: 0-59, dallar: 60-68
+const _tip = ['normal', 'normal', 'anahtar', 'normal', 'tuzak', 'normal', 'heal', 'normal', 'anahtar', 'normal'];
+const ANA_KARO = 60;
 const KARO_GRAPH = {};
 
-for (let i = 0; i < 192; i++) {
+// Ana halka
+for (let i = 0; i < ANA_KARO; i++) {
     KARO_GRAPH[i] = {
         id: i,
-        tip: i === 0 ? 'start' : _pattern[i % 7],
-        next: [(i + 1) % 192] // varsayılan yol
+        tip: i === 0 ? 'start' : _tip[i % _tip.length],
+        next: [(i + 1) % ANA_KARO]
     };
 }
-// Dal (Branch) Eklemeleri:
-// 1. Dal (30 -> 192 -> 193 -> 194 -> 35)
-KARO_GRAPH[30].next.push(192);
-KARO_GRAPH[192] = { id: 192, tip: 'tuzak', next: [193] };
-KARO_GRAPH[193] = { id: 193, tip: 'anahtar', next: [194] };
-KARO_GRAPH[194] = { id: 194, tip: 'heal', next: [35] };
 
-// 2. Dal (80 -> 195 -> 196 -> 85)
-KARO_GRAPH[80].next.push(195);
-KARO_GRAPH[195] = { id: 195, tip: 'anahtar', next: [196] };
-KARO_GRAPH[196] = { id: 196, tip: 'normal', next: [85] };
+// Dal 1: 10 → [60,61,62] → 18
+KARO_GRAPH[10].next.push(60);
+KARO_GRAPH[60] = { id: 60, tip: 'tuzak', next: [61] };
+KARO_GRAPH[61] = { id: 61, tip: 'anahtar', next: [62] };
+KARO_GRAPH[62] = { id: 62, tip: 'tuzak', next: [18] };
 
-// 3. Dal (140 -> 197 -> 198 -> 199 -> 145)
-KARO_GRAPH[140].next.push(197);
-KARO_GRAPH[197] = { id: 197, tip: 'heal', next: [198] };
-KARO_GRAPH[198] = { id: 198, tip: 'tuzak', next: [199] };
-KARO_GRAPH[199] = { id: 199, tip: 'anahtar', next: [145] };
+// Dal 2: 25 → [63,64,65] → 33
+KARO_GRAPH[25].next.push(63);
+KARO_GRAPH[63] = { id: 63, tip: 'heal', next: [64] };
+KARO_GRAPH[64] = { id: 64, tip: 'anahtar', next: [65] };
+KARO_GRAPH[65] = { id: 65, tip: 'heal', next: [33] };
+
+// Dal 3: 42 → [66,67,68] → 50
+KARO_GRAPH[42].next.push(66);
+KARO_GRAPH[66] = { id: 66, tip: 'tuzak', next: [67] };
+KARO_GRAPH[67] = { id: 67, tip: 'anahtar', next: [68] };
+KARO_GRAPH[68] = { id: 68, tip: 'heal', next: [50] };
 
 const TOPLAM_KARO = Object.keys(KARO_GRAPH).length;
 

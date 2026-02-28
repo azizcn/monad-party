@@ -173,6 +173,10 @@ const useGameStore = create((set, get) => ({
         get().socket?.emit('at-tesvik', { walletAddress: adres }),
     atYarisiSonucGonder: (siralama) =>
         get().socket?.emit('at-yarisi-sonuc', { siralama }),
+    secimYap: (adres, secilenYolId) =>
+        get().socket?.emit('choose-branch', { walletAddress: adres, secilenYolId }),
+    chooseBranch: (adres, secilenYolId) =>
+        get().socket?.emit('choose-branch', { walletAddress: adres, secilenYolId }),
     odaListesi: () =>
         get().socket?.emit('room-list'),
     odayiTerk: (adres) => {
