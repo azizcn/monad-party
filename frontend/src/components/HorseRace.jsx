@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useAccount } from 'wagmi'
 import { motion, AnimatePresence } from 'framer-motion'
-import useGameStore from '../../store/gameStore'
+import useGameStore from '../store/gameStore'
 
 // ─── Horse Pixel Art Renderer ─────────────────────────────────────────────────
 function drawHorse(ctx, x, y, color, emotion, frame, name, chestCount) {
