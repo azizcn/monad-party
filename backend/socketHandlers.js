@@ -34,8 +34,9 @@ function atYarisiBasla(io, roomId, oyuncular) {
         if (!yaris || yaris.bitti) return
         yaris.atlar.forEach(at => {
             if (at.finished) return
-            let hiz = 1.3 + Math.random() * 0.5
-            hiz *= at.speedModifier || 1.0
+            let hiz = (1.3 + Math.random() * 0.5) / 6  // 6x daha yavaş pist
+            const speedMod = at.speedModifier || 1.0
+            hiz *= speedMod
             if (at.personality === 'stubborn' && Math.random() < 0.12) hiz = -hiz * 0.2
             if (at.personality === 'lazy' && Math.random() < 0.08) hiz *= 0.05
             at.position = Math.min(100, Math.max(0, at.position + hiz))
@@ -48,9 +49,9 @@ function atYarisiBasla(io, roomId, oyuncular) {
             }
         })
         io.to(roomId).emit('at-konumlar', {
-            atlar: yaris.atlar.map(a => ({ playerAddress: a.playerAddress, position: a.position, emotion: a.emotion, finished: a.finished }))
+            atlar: yaris.atlar.map(a => ({ playerAddress: a.playerAddress, position: a.position, emotion: a.emotion, finished: a.finished, speedMod: a.speedModifier || 1.0 }))
         })
-        const hepsiBitti = yaris.atlar.every(a => a.finished === true) || (Date.now() - yaris.baslangic > 60000)
+        const hepsiBitti = yaris.atlar.every(a => a.finished === true) || (Date.now() - yaris.baslangic > 360000)
         if (hepsiBitti) {
             clearInterval(yaris.interval); yaris.bitti = true
             const w = yaris.kazanan || yaris.atlar.sort((a, b) => b.position - a.position)[0]?.playerAddress
@@ -115,14 +116,20 @@ function setupSocketHandlers(io, rooms) {
         // ── Hızlı Eşleşme ─────────────────────────────────────────────────────────
         socket.on('quick-match', ({ walletAddress }) => {
             let room = null
+            let isNewRoom = false
             for (const [, r] of rooms) { if (!r.gizli && r.durum === 'bekliyor' && r.oyuncular.length < r.maxOyuncu) { room = r; break } }
             if (!room) {
                 const roomId = uuidv4()
                 room = { roomId, host: walletAddress, odaAdi: `Hızlı #${roomId.slice(0, 4).toUpperCase()}`, oyuncular: [], durum: 'bekliyor', maxOyuncu: 8, gizli: false, olusturuldu: Date.now() }
                 rooms.set(roomId, room)
+                isNewRoom = true
             }
             if (!room.oyuncular.find(p => p.address === walletAddress)) room.oyuncular.push({ address: walletAddress, name: walletAddress.slice(0, 8), socketId: socket.id, isReady: false, isBot: false })
             socket.join(room.roomId); mevcutOdaId = room.roomId
+            if (isNewRoom) {
+                // Emit room-created so client knows they are the host
+                socket.emit('room-created', { roomId: room.roomId, room: getOdaSeti(room) })
+            }
             socket.emit('joined-room', { roomId: room.roomId, room: getOdaSeti(room) })
             yayinla(io, room)
         })
@@ -231,6 +238,8 @@ function setupSocketHandlers(io, rooms) {
             if (!mevcutOdaId) return
             const yaris = atYarislari.get(mevcutOdaId)
             if (yaris) { clearInterval(yaris.interval); atYarislari.delete(mevcutOdaId) }
+            // Emit at-yarisi-bitti so frontend sets atYarisiAktif = false
+            io.to(mevcutOdaId).emit('at-yarisi-bitti', { kazanan: siralama[0]?.adres || null })
             const sonuc = miniGameBitti(mevcutOdaId, siralama)
             if (!sonuc) return
             io.to(mevcutOdaId).emit('mini-game-oduller', { oduller: sonuc.oduller, durum: sonuc.durum })

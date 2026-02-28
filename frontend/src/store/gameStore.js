@@ -107,7 +107,7 @@ const useGameStore = create((set, get) => ({
         socket.on('at-konumlar', ({ atlar }) => {
             const konumlar = {}, duygular = {}
             atlar.forEach(a => {
-                konumlar[a.playerAddress] = { position: a.position, finished: a.finished }
+                konumlar[a.playerAddress] = { position: a.position, finished: a.finished, speedMod: a.speedMod ?? 1.0 }
                 duygular[a.playerAddress] = a.emotion || 'neutral'
             })
             set({ atKonumlar: konumlar, atDuygular: duygular })

@@ -43,10 +43,19 @@ function hizLabel(mod) {
 // Kullanıcının sağladığı sprite sheet 2 frame içeriyor.
 // Sprite sheet yoksa fallback olarak eski vektörel çizim kullanılır.
 
-function atCizSprite(ctx, x, y, imgRef, kare, renk, duygu, isim, bitti, isMe, scale = 1) {
+function frameDivisor(speedMod) {
+    if (speedMod > 3.0) return 2
+    if (speedMod > 2.0) return 3
+    if (speedMod > 1.5) return 4
+    if (speedMod > 0.8) return 7
+    if (speedMod > 0.3) return 14
+    return 30 // very slow or reversed
+}
+
+function atCizSprite(ctx, x, y, imgRef, kare, renk, duygu, isim, bitti, isMe, scale = 1, speedMod = 1.0) {
     const img = imgRef.current
     const FRAME_COUNT = 2
-    const frameIdx = bitti ? 0 : Math.floor(kare / 7) % FRAME_COUNT
+    const frameIdx = bitti ? 0 : Math.floor(kare / frameDivisor(speedMod)) % FRAME_COUNT
     const W = img ? Math.floor(img.naturalWidth / FRAME_COUNT) : 80
     const H = img ? img.naturalHeight : 60
     const dw = Math.round(W * scale * 1.2)
@@ -128,10 +137,10 @@ export default function HorseRace({ atlar = [], onYarisBitti }) {
     const [sohbet, setSohbet] = useState('')
     const [sohbetLog, setSohbetLog] = useState([])
     const [bitis, setBitis] = useState(null)
-    const [kalan, setKalan] = useState(120)              // 120 saniyelik yarış
+    const [kalan, setKalan] = useState(360)              // 360 saniyelik yarış (6x)
     const timerRef = useRef(null)
     const baslangicRef = useRef(Date.now())
-    const kalanRef = useRef(120)
+    const kalanRef = useRef(360)
 
     const { atSohbetGonder, atTesvik, atKonumlar, atDuygular, atCevaplar } = useGameStore()
     const benimAtim = atlar.find(a => a.playerAddress === address)
@@ -150,7 +159,7 @@ export default function HorseRace({ atlar = [], onYarisBitti }) {
         baslangicRef.current = Date.now()
         timerRef.current = setInterval(() => {
             const gecen = Math.floor((Date.now() - baslangicRef.current) / 1000)
-            const k = Math.max(0, 120 - gecen)
+            const k = Math.max(0, 360 - gecen)
             kalanRef.current = k
             setKalan(k)
             if (k <= 0) { clearInterval(timerRef.current); handleYarisBitti() }
@@ -289,8 +298,9 @@ export default function HorseRace({ atlar = [], onYarisBitti }) {
                 const bitmis = atKonumlar?.[at.playerAddress]?.finished || false
                 const isMe = at.playerAddress === address
                 const sprScale = 0.6
+                const speedMod = atKonumlar?.[at.playerAddress]?.speedMod ?? 1.0
 
-                atCizSprite(ctx, atX, yPos, jokeySpriteRef, bitmis ? 0 : kareRef.current, at.color || '#8B4513', duygu, at.name, bitmis, isMe, sprScale)
+                atCizSprite(ctx, atX, yPos, jokeySpriteRef, bitmis ? 0 : kareRef.current, at.color || '#8B4513', duygu, at.name, bitmis, isMe, sprScale, speedMod)
             })
 
             rafRef.current = requestAnimationFrame(loop)
@@ -332,9 +342,9 @@ export default function HorseRace({ atlar = [], onYarisBitti }) {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                         {/* Timer Bar */}
                         <div style={{ position: 'relative', width: 120, height: 14, background: 'rgba(255,255,255,0.1)', borderRadius: 7, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.15)' }}>
-                            <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: `${(kalan / 120) * 100}%`, background: kalan < 20 ? '#ef4444' : kalan < 45 ? '#f59e0b' : '#22c55e', borderRadius: 7, transition: 'width 1s linear,background 0.5s' }} />
+                            <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: `${(kalan / 360) * 100}%`, background: kalan < 60 ? '#ef4444' : kalan < 120 ? '#f59e0b' : '#22c55e', borderRadius: 7, transition: 'width 1s linear,background 0.5s' }} />
                         </div>
-                        <div style={{ fontFamily: 'var(--font-orbitron)', fontSize: '0.78rem', color: kalan < 20 ? 'var(--color-red)' : 'var(--color-cyan-light)', minWidth: 36 }}>
+                        <div style={{ fontFamily: 'var(--font-orbitron)', fontSize: '0.78rem', color: kalan < 60 ? 'var(--color-red)' : 'var(--color-cyan-light)', minWidth: 36 }}>
                             ⏱️ {kalan}s
                         </div>
                         <div style={{ fontSize: '0.65rem', color: 'var(--color-text-dim)' }}>SPACE=Teşvik</div>

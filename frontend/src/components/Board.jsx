@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { KAROLAR_POSITIONS, KAROLAR_GRAPH, BOARD_WIDTH, BOARD_HEIGHT } from '../lib/boardMapData'
+import { KAROLAR_POSITIONS, KAROLAR_GRAPH, BOARD_WIDTH, BOARD_HEIGHT, enKisaYol } from '../lib/boardMapData'
 
 const TIP_RENK = { start: '#166534', normal: '#1e3a5f', anahtar: '#78350f', tuzak: '#7f1d1d', heal: '#14532d' }
 const TIP_SINIR = { start: '#4ade80', normal: '#3b5278', anahtar: '#fbbf24', tuzak: '#f87171', heal: '#86efac' }
@@ -137,6 +137,35 @@ export default function Board({ karoTipleri = {}, kasaTileId = null, boardState,
         ctx.strokeStyle = '#3d2f1f'; ctx.lineWidth = 46; ctx.globalCompositeOperation = 'destination-over'
         ctx.stroke(); ctx.globalCompositeOperation = 'source-over'
 
+        // ─── Kasa'ya En Kısa Yol (BFS) ─────────────────────────────────────────
+        let kasaYolu = null
+        if (kasaTileId !== null && boardState?.mevcutOyuncu) {
+            const cp = boardState.oyuncular.find(p => p.adres === boardState.mevcutOyuncu)
+            if (cp && KAROLAR_POSITIONS[kasaTileId]) {
+                kasaYolu = enKisaYol(cp.konum, kasaTileId, KAROLAR_GRAPH)
+            }
+        }
+
+        // Yol vurgusu (path highlight)
+        if (kasaYolu && kasaYolu.length > 1) {
+            ctx.save()
+            ctx.strokeStyle = `rgba(251,191,36,${0.18 + 0.12 * Math.sin(frame * 0.05)})`
+            ctx.lineWidth = 18
+            ctx.lineJoin = 'round'
+            ctx.lineCap = 'round'
+            ctx.beginPath()
+            for (let i = 0; i < kasaYolu.length - 1; i++) {
+                const p1 = KAROLAR_POSITIONS[kasaYolu[i]]
+                const p2 = KAROLAR_POSITIONS[kasaYolu[i + 1]]
+                if (p1 && p2) {
+                    if (i === 0) ctx.moveTo(p1.x, p1.y)
+                    ctx.lineTo(p2.x, p2.y)
+                }
+            }
+            ctx.stroke()
+            ctx.restore()
+        }
+
         // ─── Kasa yönü (dashed line) ──────────────────────────────────────────
         if (kasaTileId !== null && KAROLAR_POSITIONS[kasaTileId] && boardState?.mevcutOyuncu) {
             const cp = boardState.oyuncular.find(p => p.adres === boardState.mevcutOyuncu)
@@ -156,6 +185,7 @@ export default function Board({ karoTipleri = {}, kasaTileId = null, boardState,
             const node = KAROLAR_GRAPH[id]
             const tip = node ? node.tip : 'normal'
             const isKasa = id === kasaTileId
+            const isOnPath = kasaYolu && kasaYolu.includes(id)
             const r = 24
 
             // Kasa parlaması
@@ -171,7 +201,9 @@ export default function Board({ karoTipleri = {}, kasaTileId = null, boardState,
             } else {
                 ctx.fillStyle = TIP_RENK[tip] || TIP_RENK.normal
                 karoPath(ctx, pos.x, pos.y, r); ctx.fill()
-                ctx.strokeStyle = TIP_SINIR[tip] || '#555555'; ctx.lineWidth = 2
+                // Path highlight border
+                ctx.strokeStyle = isOnPath ? `rgba(251,191,36,${0.5 + 0.3 * Math.sin(frame * 0.07)})` : (TIP_SINIR[tip] || '#555555')
+                ctx.lineWidth = isOnPath ? 3 : 2
                 karoPath(ctx, pos.x, pos.y, r); ctx.stroke()
             }
 
@@ -186,6 +218,36 @@ export default function Board({ karoTipleri = {}, kasaTileId = null, boardState,
             // ID
             ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.font = '9px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'
             ctx.fillText(String(id), pos.x, pos.y + r - 7)
+
+            // ─── Yön Oku (direction arrow) ────────────────────────────────────
+            if (node && node.next.length > 0) {
+                node.next.forEach((nid, ni) => {
+                    const np = KAROLAR_POSITIONS[nid]
+                    if (!np) return
+                    const dx = np.x - pos.x, dy = np.y - pos.y
+                    const len = Math.sqrt(dx * dx + dy * dy)
+                    if (len < 1) return
+                    const nx = dx / len, ny = dy / len
+                    // Arrow tip position (on edge of tile)
+                    const arrowX = pos.x + nx * (r + 10)
+                    const arrowY = pos.y + ny * (r + 10)
+
+                    // Color: main path = cyan, branch = purple
+                    const arrowColor = ni === 0 ? 'rgba(34,211,238,0.7)' : 'rgba(167,139,250,0.9)'
+                    const arrowSize = ni === 0 ? 7 : 9
+
+                    ctx.save()
+                    ctx.translate(arrowX, arrowY)
+                    ctx.rotate(Math.atan2(ny, nx))
+                    ctx.fillStyle = arrowColor
+                    ctx.beginPath()
+                    ctx.moveTo(arrowSize, 0)
+                    ctx.lineTo(-arrowSize * 0.6, -arrowSize * 0.55)
+                    ctx.lineTo(-arrowSize * 0.6, arrowSize * 0.55)
+                    ctx.closePath(); ctx.fill()
+                    ctx.restore()
+                })
+            }
         }
 
         // ─── Oyuncu Token'ları ─────────────────────────────────────────────────
@@ -342,6 +404,22 @@ export default function Board({ karoTipleri = {}, kasaTileId = null, boardState,
         if (canvasRef.current) canvasRef.current.style.cursor = cam.free ? 'grab' : 'default'
     }
 
+    const [kasaYoluUzunluk, setKasaYoluUzunluk] = useState(null)
+
+    useEffect(() => {
+        if (kasaTileId !== null && boardState?.mevcutOyuncu) {
+            const cp = boardState.oyuncular?.find(p => p.adres === boardState.mevcutOyuncu)
+            if (cp) {
+                try {
+                    const yol = enKisaYol(cp.konum, kasaTileId, KAROLAR_GRAPH)
+                    setKasaYoluUzunluk(yol ? yol.length - 1 : null)
+                } catch { setKasaYoluUzunluk(null) }
+            }
+        } else {
+            setKasaYoluUzunluk(null)
+        }
+    }, [kasaTileId, boardState])
+
     return (
         <div style={{ position: 'relative', display: 'inline-block', width: '100%', height: 'calc(100vh - 120px)' }}>
             <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: '100%', borderRadius: 14, border: '1px solid rgba(34,197,94,0.4)', boxShadow: '0 0 50px rgba(22,163,74,0.2)', backgroundColor: '#0d2318' }} />
@@ -365,6 +443,32 @@ export default function Board({ karoTipleri = {}, kasaTileId = null, boardState,
                     Sürükle = Gezin • Scroll = Zoom
                 </div>
             )}
+
+            {/* Kasa Yol Göstergesi */}
+            {kasaYoluUzunluk !== null && (
+                <div style={{
+                    position: 'absolute', top: 12, left: 12, zIndex: 20,
+                    background: 'rgba(0,0,0,0.7)', border: '1px solid rgba(251,191,36,0.5)',
+                    borderRadius: 8, padding: '0.35rem 0.75rem',
+                    fontSize: '0.7rem', fontFamily: 'var(--font-orbitron)', color: '#fbbf24',
+                    backdropFilter: 'blur(4px)',
+                }}>
+                    📍 {kasaYoluUzunluk} adım → 🎁 Kasa
+                </div>
+            )}
+
+            {/* Ok Anahtar (Legend) */}
+            <div style={{
+                position: 'absolute', top: kasaYoluUzunluk !== null ? 52 : 12, left: 12, zIndex: 20,
+                background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: 8, padding: '0.3rem 0.6rem',
+                fontSize: '0.58rem', color: 'rgba(255,255,255,0.7)',
+                backdropFilter: 'blur(4px)', display: 'flex', gap: '0.75rem', alignItems: 'center',
+            }}>
+                <span style={{ color: 'rgba(34,211,238,0.9)' }}>▶ Ana yol</span>
+                <span style={{ color: 'rgba(167,139,250,0.9)' }}>▶ Dal yol</span>
+                <span style={{ color: 'rgba(251,191,36,0.8)' }}>―― Kasaya giden yol</span>
+            </div>
 
             {/* Branch Choice Seçim Modal */}
             <AnimatePresence>
