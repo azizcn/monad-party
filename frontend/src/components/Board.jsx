@@ -496,20 +496,23 @@ export default function Board({ karoTipleri = {}, kasaTileId = null, boardState,
 
             {/* Branch Choice Seçim Modal */}
             <AnimatePresence>
-                {isBranchChoicePhase && isMyTurn && boardState?.mevcutOyuncu === address && (() => {
+                {isBranchChoicePhase && (() => {
                     const myPlayer = boardState?.oyuncular?.find(p => p.adres === address)
                     const myNode = myPlayer ? KAROLAR_GRAPH[myPlayer.konum] : null
                     const branches = myNode?.next || []
                     if (branches.length < 2) return null
                     return (
-                        <motion.div initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                        <motion.div key="branch-modal" initial={{ opacity: 0, scale: 0.85 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.85 }}
                             style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', background: 'rgba(0,0,0,0.92)', padding: '2rem', borderRadius: 16, border: '2px solid #fbbf24', textAlign: 'center', zIndex: 100, backdropFilter: 'blur(12px)', minWidth: 300 }}>
-                            <h3 style={{ color: '#fbbf24', marginBottom: '1rem', marginTop: 0 }}>⑂ Yol Ayrımı! Hangi yönü seçiyorsun?</h3>
+                            <h3 style={{ color: '#fbbf24', marginBottom: '1rem', marginTop: 0 }}>⑂ Yol Ayrımı!</h3>
+                            <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.78rem', marginBottom: '1.2rem', marginTop: 0 }}>Hangi yolu seçiyorsun?</p>
                             <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
                                 {branches.map((n, ni) => (
                                     <button key={n} onClick={() => onChooseBranch(n)}
-                                        style={{ padding: '0.8rem 1.5rem', background: ni === 0 ? 'linear-gradient(135deg,#06b6d4,#0e7490)' : 'linear-gradient(135deg,#a855f7,#7c3aed)', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem', boxShadow: '0 0 12px rgba(0,0,0,0.4)' }}>
-                                        {TIP_IKON[KAROLAR_GRAPH[n]?.tip] || (ni === 0 ? '↑' : '↗')} {KAROLAR_GRAPH[n]?.tip?.toUpperCase() || 'YOL'} <span style={{ opacity: 0.6, fontSize: '0.7rem' }}>(#{n})</span>
+                                        style={{ padding: '0.9rem 1.6rem', background: ni === 0 ? 'linear-gradient(135deg,#06b6d4,#0e7490)' : 'linear-gradient(135deg,#a855f7,#7c3aed)', border: 'none', borderRadius: 10, color: '#fff', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.9rem', boxShadow: `0 0 18px ${ni === 0 ? 'rgba(6,182,212,0.45)' : 'rgba(168,85,247,0.45)'}`, transition: 'transform 0.15s', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.25rem' }}>
+                                        <span style={{ fontSize: '1.4rem' }}>{ni === 0 ? '🛤️' : '🌿'}</span>
+                                        <span>{KAROLAR_GRAPH[n]?.tip?.toUpperCase() || 'YOL'}</span>
+                                        <span style={{ opacity: 0.55, fontSize: '0.65rem' }}>#{n}</span>
                                     </button>
                                 ))}
                             </div>
