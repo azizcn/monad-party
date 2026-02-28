@@ -215,6 +215,30 @@ export default function Board({ karoTipleri = {}, kasaTileId = null, boardState,
                 ctx.fillText(ikon, pos.x, pos.y - 2)
             }
 
+            // Kasa tile yanında sandık çizimi
+            if (isKasa) {
+                const cx = pos.x + r + 14, cy = pos.y - 8
+                const bw = 18, bh = 13
+                const glow2 = 0.5 + 0.4 * Math.sin(frame * 0.09)
+                ctx.save()
+                ctx.shadowColor = '#fbbf24'; ctx.shadowBlur = 10 * glow2
+                // Sandık gövdesi
+                ctx.fillStyle = '#78350f'
+                ctx.beginPath(); ctx.roundRect(cx - bw / 2, cy, bw, bh, 2); ctx.fill()
+                ctx.strokeStyle = `rgba(251,191,36,${glow2})`; ctx.lineWidth = 1.5
+                ctx.stroke()
+                // Sandık kapağı
+                ctx.fillStyle = '#92400e'
+                ctx.beginPath(); ctx.roundRect(cx - bw / 2, cy - 5, bw, 6, [2, 2, 0, 0]); ctx.fill()
+                ctx.strokeStyle = `rgba(251,191,36,${glow2})`; ctx.lineWidth = 1
+                ctx.stroke()
+                // Kilit
+                ctx.fillStyle = `rgba(251,191,36,${glow2 + 0.2})`
+                ctx.beginPath(); ctx.arc(cx, cy + 2, 2.5, 0, Math.PI * 2); ctx.fill()
+                ctx.shadowBlur = 0
+                ctx.restore()
+            }
+
             // ID
             ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.font = '9px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'
             ctx.fillText(String(id), pos.x, pos.y + r - 7)
@@ -472,20 +496,26 @@ export default function Board({ karoTipleri = {}, kasaTileId = null, boardState,
 
             {/* Branch Choice Seçim Modal */}
             <AnimatePresence>
-                {isBranchChoicePhase && isMyTurn && boardState?.mevcutOyuncu === address && (
-                    <motion.div initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-                        style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', background: 'rgba(0,0,0,0.85)', padding: '2rem', borderRadius: 16, border: '2px solid #fbbf24', textAlign: 'center', zIndex: 100, backdropFilter: 'blur(8px)' }}>
-                        <h3 style={{ color: '#fbbf24', marginBottom: '1rem', marginTop: 0 }}>⑂ Yol Ayrımı! Hangi yönü seçiyorsun?</h3>
-                        <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
-                            {KAROLAR_GRAPH[boardState.oyuncular.find(p => p.adres === address)?.konum]?.next.map((n) => (
-                                <button key={n} onClick={() => onChooseBranch(n)}
-                                    style={{ padding: '0.8rem 1.5rem', background: 'linear-gradient(135deg,#3b82f6,#1d4ed8)', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}>
-                                    {TIP_IKON[KAROLAR_GRAPH[n]?.tip] || ''} {KAROLAR_GRAPH[n]?.tip?.toUpperCase() || 'YOL'} <span style={{ opacity: 0.6, fontSize: '0.7rem' }}>(#{n})</span>
-                                </button>
-                            ))}
-                        </div>
-                    </motion.div>
-                )}
+                {isBranchChoicePhase && isMyTurn && boardState?.mevcutOyuncu === address && (() => {
+                    const myPlayer = boardState?.oyuncular?.find(p => p.adres === address)
+                    const myNode = myPlayer ? KAROLAR_GRAPH[myPlayer.konum] : null
+                    const branches = myNode?.next || []
+                    if (branches.length < 2) return null
+                    return (
+                        <motion.div initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                            style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', background: 'rgba(0,0,0,0.92)', padding: '2rem', borderRadius: 16, border: '2px solid #fbbf24', textAlign: 'center', zIndex: 100, backdropFilter: 'blur(12px)', minWidth: 300 }}>
+                            <h3 style={{ color: '#fbbf24', marginBottom: '1rem', marginTop: 0 }}>⑂ Yol Ayrımı! Hangi yönü seçiyorsun?</h3>
+                            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+                                {branches.map((n, ni) => (
+                                    <button key={n} onClick={() => onChooseBranch(n)}
+                                        style={{ padding: '0.8rem 1.5rem', background: ni === 0 ? 'linear-gradient(135deg,#06b6d4,#0e7490)' : 'linear-gradient(135deg,#a855f7,#7c3aed)', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem', boxShadow: '0 0 12px rgba(0,0,0,0.4)' }}>
+                                        {TIP_IKON[KAROLAR_GRAPH[n]?.tip] || (ni === 0 ? '↑' : '↗')} {KAROLAR_GRAPH[n]?.tip?.toUpperCase() || 'YOL'} <span style={{ opacity: 0.6, fontSize: '0.7rem' }}>(#{n})</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </motion.div>
+                    )
+                })()}
             </AnimatePresence>
 
             {/* Zar & Butonlar */}

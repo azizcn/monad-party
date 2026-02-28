@@ -122,8 +122,13 @@ const useGameStore = create((set, get) => ({
         socket.on('at-sohbet-gonderildi', (data) =>
             set(s => ({ atCevaplar: [...s.atCevaplar.slice(-15), data] })))
 
-        socket.on('at-yarisi-bitti', ({ kazanan }) =>
-            setTimeout(() => set({ atYarisiAktif: false }), 3000))
+        socket.on('at-yarisi-bitti', ({ kazanan, durum }) =>
+            setTimeout(() => set(s => ({
+                atYarisiAktif: false,
+                boardFaz: durum?.faz || 'zar',
+                boardState: durum || s.boardState,
+                kasaTileId: durum?.kasaTileId ?? s.kasaTileId,
+            })), 3000))
 
         socket.on('mini-game-oduller', ({ oduller, durum }) => {
             set({ miniGameOduller: oduller, boardState: durum, boardFaz: durum?.faz })
