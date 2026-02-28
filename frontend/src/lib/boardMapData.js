@@ -1,5 +1,3 @@
-import { KARO_GRAPH } from '../../backend/boardEngine.js'; // Ensure backend path works or just recreate
-
 // Backend boardEngine.js graph representation
 const graph = {};
 const _pattern = ['normal', 'normal', 'anahtar', 'tuzak', 'heal', 'normal', 'anahtar'];
