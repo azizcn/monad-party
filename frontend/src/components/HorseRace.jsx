@@ -3,108 +3,119 @@ import { useAccount } from 'wagmi'
 import { motion, AnimatePresence } from 'framer-motion'
 import useGameStore from '../store/gameStore'
 
-// ─── Düz Pist At Yarışı — Üstten Bakış ───────────────────────────────────────
-// Tıpkı referans resmi gibi: yatay pistte yan yana atlar, soldan sağa gidiyor
+// ─── At Yarışı — Sprite tabanlı ────────────────────────────────────────────────
+// Jokey sprite sheet: iki kare yan yana (her biri yaklaşık yarısı)
+// Kullanıcının sağladığı resim: iki pozlama, at koşuyor.
 
-const PIST_W = 860
-const SERI_Y = 80      // her şeridin yüksekliği
-const SERI_PAD = 20
-const BITIS_X = PIST_W - 60
-const START_X = 60
-
-// At kişilik renkleri
-const AT_RENK = {
-    hothead: '#8B4513', stubborn: '#696969', lazy: '#D2B48C',
-    gentle: '#F5DEB3', competitive: '#8B0000',
-}
 const JOKEY_RENK = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#e67e22', '#95a5a6']
-const DUYGU_IKON = { angry: '🔥', calm: '😌', happy: '😊', sad: '😢', defiant: '😤', motivated: '💪', sleepy: '💤', determined: '⚡', focused: '🎯', cocky: '😏', neutral: '' }
-const KISILIK_ISIM = { hothead: 'Ateşli', stubborn: 'İnatçı', lazy: 'Tembel', gentle: 'Nazik', competitive: 'Hırslı' }
+const DUYGU_IKON = {
+    angry: '🔥', calm: '😌', happy: '😊', sad: '😢',
+    defiant: '😤', motivated: '💪', sleepy: '💤',
+    determined: '⚡', focused: '🎯', cocky: '😏', neutral: '', content: '🙂',
+}
 
-// Yandan Bakış At Çizimi (Pixel-Art esintili side-view)
-function atCiz(ctx, x, y, atRenk, jokeyRenk, duygu, kare, isim, bitti) {
-    // 2 frame'lik basit koşu animasyonu (kare bazlı)
-    const isFrame1 = Math.floor(kare / 6) % 2 === 0
-    const bacakAcisi = bitti ? 0 : (isFrame1 ? 5 : -5)
+const KISILIK_ISIM = { hothead: 'Ateşli', stubborn: 'İnatçı', lazy: 'Tembel', gentle: 'Nazik', competitive: 'Hırslı' }
+const KISILIK_IPUCU = {
+    hothead: 'Hakaret/kötü kelimeler → 4.5x hız! Övgü → yavaşlar.',
+    stubborn: '"Hızlan" dersen yavaşlar! "Dur/yavaş" dersen koşar.',
+    lazy: 'Sürekli övgü gerek, yoksa uyur. "harika", "hadi" de!',
+    gentle: '"Güzelsin", "harika" → 3x hız! Hakaret → ağlar, durur.',
+    competitive: 'Gerideyken kendiliğinden 4x hızlanır. Lider olunca yavaşlar.',
+}
+const KISILIK_RENK = {
+    hothead: '#ef4444', stubborn: '#8b5cf6', lazy: '#94a3b8',
+    gentle: '#10b981', competitive: '#f59e0b',
+}
+const MODIFIER_LABEL = [
+    { max: 0, label: '⏪ Geri', color: '#ef4444' },
+    { max: 0.3, label: '🐢 Çok Yavaş', color: '#f97316' },
+    { max: 0.9, label: '😴 Yavaş', color: '#eab308' },
+    { max: 1.5, label: '🏃 Normal', color: '#22c55e' },
+    { max: 2.5, label: '🔥 Hızlı', color: '#06b6d4' },
+    { max: 5, label: '⚡ SÜPER HIZ', color: '#a855f7' },
+]
+function hizLabel(mod) {
+    for (const m of MODIFIER_LABEL) if (mod <= m.max) return m
+    return MODIFIER_LABEL[MODIFIER_LABEL.length - 1]
+}
+
+// ─── Sprite tabanlı at çizimi ────────────────────────────────────────────────
+// Kullanıcının sağladığı sprite sheet 2 frame içeriyor.
+// Sprite sheet yoksa fallback olarak eski vektörel çizim kullanılır.
+
+function atCizSprite(ctx, x, y, imgRef, kare, renk, duygu, isim, bitti, isMe, scale = 1) {
+    const img = imgRef.current
+    const FRAME_COUNT = 2
+    const frameIdx = bitti ? 0 : Math.floor(kare / 7) % FRAME_COUNT
+    const W = img ? Math.floor(img.naturalWidth / FRAME_COUNT) : 80
+    const H = img ? img.naturalHeight : 60
+    const dw = Math.round(W * scale * 1.2)
+    const dh = Math.round(H * scale * 1.2)
 
     ctx.save()
+
+    // Renk tonu kaplama (jockey rengi için hafif renk mix)
     ctx.translate(x, y)
 
-    // Duygu (Tepede)
+    // Gölge
+    ctx.fillStyle = 'rgba(0,0,0,0.25)'
+    ctx.beginPath()
+    ctx.ellipse(0, dh * 0.5 + 2, dw * 0.35, 5 * scale, 0, 0, Math.PI * 2)
+    ctx.fill()
+
+    // Duygu / Bitti simgesi
     if (duygu && DUYGU_IKON[duygu]) {
-        ctx.font = '16px serif'; ctx.textAlign = 'center'
-        ctx.fillText(DUYGU_IKON[duygu], -10, -35)
+        ctx.font = `${14 * scale}px serif`
+        ctx.textAlign = 'center'
+        ctx.fillText(DUYGU_IKON[duygu], 0, -dh * 0.5 - 8 * scale)
     }
     if (bitti) {
-        ctx.font = '20px serif'; ctx.textAlign = 'center'
-        ctx.fillText('🏆', -10, -45)
+        ctx.font = `${18 * scale}px serif`
+        ctx.textAlign = 'center'
+        ctx.fillText('🏆', 0, -dh * 0.5 - 22 * scale)
     }
 
-    // Gövde (Gölge)
-    ctx.fillStyle = 'rgba(0,0,0,0.3)'
-    ctx.beginPath(); ctx.ellipse(-5, 20, 18, 5, 0, 0, Math.PI * 2); ctx.fill()
+    // Benim atım vurgu hale
+    if (isMe) {
+        ctx.strokeStyle = 'rgba(251,191,36,0.7)'
+        ctx.lineWidth = 2
+        ctx.setLineDash([4, 3])
+        ctx.beginPath()
+        ctx.ellipse(0, dh * 0.2, dw * 0.4, dh * 0.35, 0, 0, Math.PI * 2)
+        ctx.stroke()
+        ctx.setLineDash([])
+    }
 
-    ctx.shadowColor = AT_RENK[duygu] || atRenk || '#8B4513'
-    ctx.shadowBlur = duygu !== 'neutral' ? 10 : 0
-
-    // Arka Bacaklar (Geri Planda daha koyu)
-    ctx.fillStyle = '#4a2511'
-    ctx.fillRect(-15 + bacakAcisi, 5, 5, 15) // Arka Sol
-    ctx.fillRect(5 - bacakAcisi, 5, 4, 14)  // Ön Sol
-
-    // Gövde ana
-    ctx.fillStyle = atRenk || '#8B4513'
-    ctx.beginPath(); ctx.ellipse(-5, 0, 20, 10, 0, 0, Math.PI * 2); ctx.fill()
-
-    // Boyun ve Baş
-    ctx.beginPath()
-    ctx.moveTo(8, -2)
-    ctx.lineTo(20, -18) // kulak bölgesi
-    ctx.lineTo(26, -14) // burun
-    ctx.lineTo(15, -2)
-    ctx.fill()
-    ctx.shadowBlur = 0
-
-    // Ön Bacaklar
-    ctx.fillStyle = atRenk || '#8B4513'
-    ctx.fillRect(-10 - bacakAcisi, 5, 5, 15) // Arka Sağ
-    ctx.fillRect(10 + bacakAcisi, 5, 5, 15)  // Ön Sağ
-
-    // Göz ve Burun
-    ctx.fillStyle = '#000'
-    ctx.fillRect(20, -14, 2, 2)
-    ctx.fillStyle = 'rgba(0,0,0,0.5)'
-    ctx.fillRect(24, -12, 2, 2)
-
-    // Yele
-    ctx.fillStyle = '#2d1406'
-    ctx.beginPath()
-    ctx.moveTo(4, -4); ctx.lineTo(16, -18); ctx.lineTo(10, -18); ctx.lineTo(0, -6); ctx.fill()
-
-    // Kuyruk
-    ctx.beginPath()
-    ctx.moveTo(-22, -4); ctx.lineTo(-32, 5 + bacakAcisi); ctx.lineTo(-24, 8); ctx.fill()
-
-    // Jokey
-    ctx.fillStyle = jokeyRenk
-    // Gövde
-    ctx.beginPath(); ctx.ellipse(-5, -12, 6, 8, 0.2, 0, Math.PI * 2); ctx.fill()
-    // Baş (Kask)
-    ctx.fillStyle = 'white'
-    ctx.beginPath(); ctx.arc(-2, -22, 5, 0, Math.PI * 2); ctx.fill()
-    ctx.fillStyle = '#000' // Vizör
-    ctx.fillRect(-1, -24, 4, 3)
+    if (img && img.complete && img.naturalWidth > 0) {
+        // Sprite sheet'ten ilgili frame'i çiz
+        ctx.drawImage(img, frameIdx * W, 0, W, H, -dw / 2, -dh * 0.5, dw, dh)
+    } else {
+        // Fallback: basit koşu animasyonu
+        const isFrame1 = frameIdx === 0
+        const ba = isFrame1 ? 5 : -5
+        ctx.fillStyle = renk || '#8B4513'
+        ctx.beginPath(); ctx.ellipse(0, 0, 20 * scale, 10 * scale, 0, 0, Math.PI * 2); ctx.fill()
+        ctx.beginPath(); ctx.moveTo(8 * scale, -2 * scale); ctx.lineTo(20 * scale, -18 * scale); ctx.lineTo(26 * scale, -14 * scale); ctx.lineTo(15 * scale, -2 * scale); ctx.fill()
+        ctx.fillStyle = '#4a2511'
+        ctx.fillRect((-15 + ba) * scale, 5 * scale, 5 * scale, 15 * scale)
+        ctx.fillRect((5 - ba) * scale, 5 * scale, 4 * scale, 14 * scale)
+        ctx.fillRect((-10 - ba) * scale, 5 * scale, 5 * scale, 15 * scale)
+        ctx.fillRect((10 + ba) * scale, 5 * scale, 5 * scale, 15 * scale)
+    }
 
     ctx.restore()
 
-    // İsim etiketi (Altında)
-    ctx.fillStyle = 'rgba(0,0,0,0.7)'
-    const metinG = 40
-    ctx.fillRect(x - 25, y + 25, 40, 12)
-    ctx.fillStyle = '#fff'
-    ctx.font = 'bold 8px monospace'
+    // İsim etiketi
+    ctx.save()
+    ctx.fillStyle = isMe ? 'rgba(251,191,36,0.85)' : 'rgba(0,0,0,0.7)'
+    ctx.beginPath()
+    ctx.roundRect(x - 28 * scale, y + dh * 0.52, 56 * scale, 13 * scale, 4)
+    ctx.fill()
+    ctx.fillStyle = isMe ? '#000' : '#fff'
+    ctx.font = `bold ${7 * scale}px monospace`
     ctx.textAlign = 'center'
-    ctx.fillText(isim.slice(0, 10), x - 5, y + 34)
+    ctx.fillText(isim.slice(0, 10), x, y + dh * 0.52 + 9 * scale)
+    ctx.restore()
 }
 
 export default function HorseRace({ atlar = [], onYarisBitti }) {
@@ -113,22 +124,34 @@ export default function HorseRace({ atlar = [], onYarisBitti }) {
     const rafRef = useRef(null)
     const kareRef = useRef(0)
     const bgOffsetRef = useRef(0)
+    const jokeySpriteRef = useRef(null)
     const [sohbet, setSohbet] = useState('')
     const [sohbetLog, setSohbetLog] = useState([])
     const [bitis, setBitis] = useState(null)
-    const [kalan, setKalan] = useState(60)
+    const [kalan, setKalan] = useState(120)              // 120 saniyelik yarış
     const timerRef = useRef(null)
     const baslangicRef = useRef(Date.now())
+    const kalanRef = useRef(120)
 
     const { atSohbetGonder, atTesvik, atKonumlar, atDuygular, atCevaplar } = useGameStore()
     const benimAtim = atlar.find(a => a.playerAddress === address)
+
+    // Jokey sprite yükle
+    useEffect(() => {
+        const img = new Image()
+        img.onload = () => { jokeySpriteRef.current = img }
+        img.onerror = () => { jokeySpriteRef.current = null }
+        // Kullanıcı tarafından sağlanan jokey görseli
+        img.src = '/jockey_sprite.png'
+    }, [])
 
     // Zamanlayıcı
     useEffect(() => {
         baslangicRef.current = Date.now()
         timerRef.current = setInterval(() => {
             const gecen = Math.floor((Date.now() - baslangicRef.current) / 1000)
-            const k = Math.max(0, 60 - gecen)
+            const k = Math.max(0, 120 - gecen)
+            kalanRef.current = k
             setKalan(k)
             if (k <= 0) { clearInterval(timerRef.current); handleYarisBitti() }
         }, 1000)
@@ -159,101 +182,125 @@ export default function HorseRace({ atlar = [], onYarisBitti }) {
         const canvas = canvasRef.current
         if (!canvas || !atlar.length) return
         const ctx = canvas.getContext('2d')
-        const viewW = canvas.clientWidth, viewH = canvas.clientHeight
-        canvas.width = viewW; canvas.height = viewH
 
-        const Y_SPACING = (viewH - 120) / atlar.length
+        const resize = () => {
+            canvas.width = canvas.clientWidth
+            canvas.height = canvas.clientHeight
+        }
+        resize()
+        window.addEventListener('resize', resize)
 
         const loop = () => {
             kareRef.current++
-            bgOffsetRef.current += 1.5 // Arka plan kayma hızı
+            bgOffsetRef.current += 2
+            const viewW = canvas.width, viewH = canvas.height
             ctx.clearRect(0, 0, viewW, viewH)
 
-            // 1. Gökyüzü ve Uzak Arka Plan (Sabit)
-            const grad = ctx.createLinearGradient(0, 0, 0, viewH)
-            grad.addColorStop(0, '#87CEEB'); grad.addColorStop(1, '#E0F6FF')
+            // 1. Gökyüzü
+            const grad = ctx.createLinearGradient(0, 0, 0, viewH * 0.45)
+            grad.addColorStop(0, '#0f172a')
+            grad.addColorStop(0.5, '#1e3a5f')
+            grad.addColorStop(1, '#1a5c32')
             ctx.fillStyle = grad; ctx.fillRect(0, 0, viewW, viewH)
 
+            // Yıldızlar (statik parallax)
+            ctx.fillStyle = 'rgba(255,255,255,0.55)'
+            for (let i = 0; i < 30; i++) {
+                const sx = ((i * 137 + bgOffsetRef.current * 0.05) % viewW)
+                const sy = (i * 53) % (viewH * 0.3)
+                const ss = 1 + (i % 3) * 0.5
+                ctx.beginPath(); ctx.arc(sx, sy, ss, 0, Math.PI * 2); ctx.fill()
+            }
+
             // Bulutlar Parallax
-            ctx.fillStyle = 'rgba(255,255,255,0.7)'
-            const cloudOffset = (bgOffsetRef.current * 0.2) % viewW
-            for (let i = 0; i < 3; i++) {
-                ctx.beginPath(); ctx.arc((i * 300 - cloudOffset + viewW) % viewW, 40 + (i % 2) * 20, 30, 0, Math.PI * 2); ctx.fill()
-                ctx.beginPath(); ctx.arc((i * 300 - cloudOffset + viewW) % viewW + 30, 40 + (i % 2) * 20, 20, 0, Math.PI * 2); ctx.fill()
-                ctx.beginPath(); ctx.arc((i * 300 - cloudOffset + viewW) % viewW - 20, 45 + (i % 2) * 20, 25, 0, Math.PI * 2); ctx.fill()
+            ctx.fillStyle = 'rgba(255,255,255,0.18)'
+            const cloudOffset = (bgOffsetRef.current * 0.3) % viewW
+            for (let i = 0; i < 4; i++) {
+                const cx = (i * 280 - cloudOffset + viewW * 2) % viewW
+                const cy = 35 + (i % 3) * 18
+                ctx.beginPath(); ctx.arc(cx, cy, 28, 0, Math.PI * 2); ctx.fill()
+                ctx.beginPath(); ctx.arc(cx + 28, cy, 20, 0, Math.PI * 2); ctx.fill()
+                ctx.beginPath(); ctx.arc(cx - 18, cy + 5, 22, 0, Math.PI * 2); ctx.fill()
             }
 
-            // 2. Uzak Ağaçlar Parallax
-            const treeOffset = (bgOffsetRef.current * 0.5) % 100
-            for (let x = -treeOffset; x < viewW; x += 100) {
-                ctx.fillStyle = '#228B22'
-                ctx.beginPath(); ctx.moveTo(x + 20, 80); ctx.lineTo(x + 50, 20); ctx.lineTo(x + 80, 80); ctx.fill()
-                ctx.fillStyle = '#1e751e'
-                ctx.beginPath(); ctx.moveTo(x + 50, 20); ctx.lineTo(x + 80, 80); ctx.lineTo(x + 50, 80); ctx.fill()
-                ctx.fillStyle = '#4a2511'
-                ctx.fillRect(x + 45, 80, 10, 20)
+            // Uzak tepeler
+            const hillOffset = (bgOffsetRef.current * 0.4) % (viewW * 1.5)
+            ctx.fillStyle = '#1a4a25'
+            ctx.beginPath(); ctx.moveTo(0, viewH * 0.48)
+            for (let x = -hillOffset; x < viewW + 200; x += 150) {
+                ctx.bezierCurveTo(x + 30, viewH * 0.3, x + 90, viewH * 0.3, x + 150, viewH * 0.48)
+            }
+            ctx.lineTo(viewW, viewH); ctx.lineTo(0, viewH); ctx.closePath(); ctx.fill()
+
+            // Uzak ağaçlar
+            const treeOffset = (bgOffsetRef.current * 0.6) % 160
+            for (let x = -treeOffset; x < viewW; x += 160) {
+                ctx.fillStyle = '#14532d'
+                ctx.beginPath(); ctx.moveTo(x + 30, viewH * 0.48); ctx.lineTo(x + 60, viewH * 0.28); ctx.lineTo(x + 90, viewH * 0.48); ctx.fill()
+                ctx.fillStyle = '#166534'
+                ctx.beginPath(); ctx.moveTo(x + 40, viewH * 0.42); ctx.lineTo(x + 60, viewH * 0.22); ctx.lineTo(x + 80, viewH * 0.42); ctx.fill()
+                ctx.fillStyle = '#3d2a10'
+                ctx.fillRect(x + 56, viewH * 0.48, 8, viewH * 0.06)
             }
 
-            // 3. Zemin Çimenleri
-            ctx.fillStyle = '#32CD32'
-            ctx.fillRect(0, 100, viewW, viewH - 100)
+            // Zemin (pist)
+            ctx.fillStyle = '#16a34a'
+            ctx.fillRect(0, viewH * 0.48, viewW, viewH)
 
-            // Hızlı geçen zemin çizgileri (hız hissi)
-            ctx.fillStyle = '#228B22'
-            const lineOffset = bgOffsetRef.current % 40
-            for (let y = 120; y < viewH; y += 30) {
-                for (let x = -lineOffset; x < viewW; x += 80) {
-                    ctx.fillRect(x, y, 20 + Math.random() * 20, 2)
-                }
+            // Pist şeritleri
+            ctx.fillStyle = '#15803d'
+            const pistH = viewH - viewH * 0.48
+            const pistTop = viewH * 0.48
+            atlar.forEach((_, i) => {
+                const lineY = pistTop + (i / atlar.length) * pistH
+                ctx.fillRect(0, lineY, viewW, 1)
+            })
+
+            // Perspektif zemin çizgileri (hız hissi)
+            ctx.fillStyle = 'rgba(0,0,0,0.12)'
+            const lineOffset = bgOffsetRef.current % 60
+            for (let gx = -lineOffset; gx < viewW; gx += 60) {
+                ctx.fillRect(gx, pistTop, 2, viewH - pistTop)
             }
 
-            // Bitiş Çizgisi Hedefi
-            const finishLineX = viewW - 100
-            if (kalan < 50 || atlar.some(a => (atKonumlar?.[a.playerAddress]?.position ?? 0) > 80)) {
-                ctx.strokeStyle = '#fff'; ctx.lineWidth = 4; ctx.setLineDash([10, 10])
-                ctx.beginPath(); ctx.moveTo(finishLineX, 100); ctx.lineTo(finishLineX, viewH); ctx.stroke()
-                ctx.setLineDash([])
-            }
+            // Bitiş Çizgisi
+            const finishLineX = viewW - 80
+            ctx.strokeStyle = '#fff'; ctx.lineWidth = 5; ctx.setLineDash([12, 12])
+            ctx.beginPath(); ctx.moveTo(finishLineX, pistTop); ctx.lineTo(finishLineX, viewH); ctx.stroke()
+            ctx.setLineDash([])
+            // Bitiş bayrağı
+            ctx.font = '24px serif'; ctx.textBaseline = 'top'
+            ctx.fillText('🏁', finishLineX - 12, pistTop)
 
-            // Atları çiz (Side view dizilişi)
-            // Y pozisyonlarını sıralamaya göre biraz dağıt ki üst üste binmesinler
+            // Atları çiz
+            const Y_SPACING = (viewH - pistTop - 60) / Math.max(atlar.length, 1)
             const sortedHorses = [...atlar].sort((a, b) => {
                 const posA = atKonumlar?.[a.playerAddress]?.position ?? a.position ?? 0
                 const posB = atKonumlar?.[b.playerAddress]?.position ?? b.position ?? 0
-                return posA - posB // arkadan öne çiz (z-index)
+                return posA - posB
             })
 
             sortedHorses.forEach((at) => {
                 const i = atlar.findIndex(a => a.playerAddress === at.playerAddress)
                 const pos = atKonumlar?.[at.playerAddress]?.position ?? at.position ?? 0
                 const duygu = atDuygular?.[at.playerAddress] ?? 'neutral'
-
-                // Y ekseni şerit dizilimi: 120'den başlayıp aşağı doğru
-                const yPos = 130 + (i * Y_SPACING)
-
-                // X ekseni: pos'a göre
-                // Bitiş çizgisi viewW - 100'de. %100 orada olacak şekilde ayarla.
-                const atX = 50 + (pos / 100) * (finishLineX - 50)
-
+                const yPos = pistTop + 30 + (i * Y_SPACING)
+                const atX = 60 + (pos / 100) * (finishLineX - 70)
                 const bitmis = atKonumlar?.[at.playerAddress]?.finished || false
                 const isMe = at.playerAddress === address
-                const atRengi = AT_RENK[at.personality] || '#8B4513'
-                const jokeyRengi = JOKEY_RENK[i % 8]
+                const sprScale = 0.6
 
-                // Vurgu hale
-                if (isMe) {
-                    ctx.fillStyle = 'rgba(251, 191, 36, 0.3)'
-                    ctx.beginPath(); ctx.ellipse(atX - 5, yPos + 20, 30, 8, 0, 0, Math.PI * 2); ctx.fill()
-                }
-
-                atCiz(ctx, atX, yPos, atRengi, jokeyRengi, duygu, bitmis ? 0 : kareRef.current, at.name, bitmis)
+                atCizSprite(ctx, atX, yPos, jokeySpriteRef, bitmis ? 0 : kareRef.current, at.color || '#8B4513', duygu, at.name, bitmis, isMe, sprScale)
             })
 
             rafRef.current = requestAnimationFrame(loop)
         }
         rafRef.current = requestAnimationFrame(loop)
-        return () => cancelAnimationFrame(rafRef.current)
-    }, [atlar, atKonumlar, atDuygular, address, kalan])
+        return () => {
+            cancelAnimationFrame(rafRef.current)
+            window.removeEventListener('resize', resize)
+        }
+    }, [atlar, atKonumlar, atDuygular, address])
 
     // SPACE = teşvik
     useEffect(() => {
@@ -270,62 +317,102 @@ export default function HorseRace({ atlar = [], onYarisBitti }) {
         setSohbet('')
     }
 
-    const PIST_TOPLAM_H = atlar.length * SERI_Y + SERI_PAD * 2
+    // Anlık hız bilgisi
+    const suankiModifier = benimAtim ? (atKonumlar?.[benimAtim.playerAddress]?.speedMod ?? 1.0) : 1.0
+    const hizBilgi = hizLabel(suankiModifier)
 
     return (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 270px', gap: '0.75rem', height: '100%', padding: '0.75rem' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 290px', gap: '0.75rem', height: '100%', padding: '0.75rem' }}>
 
             {/* Pist */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', minWidth: 0 }}>
                 {/* Başlık */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <div style={{ fontFamily: 'var(--font-pixel)', fontSize: '0.7rem', color: 'var(--color-yellow)', letterSpacing: '0.15em' }}>🐴 AT YARIŞI</div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                        <div style={{ fontFamily: 'var(--font-orbitron)', fontSize: '0.7rem', color: kalan < 10 ? 'var(--color-red)' : 'var(--color-cyan-light)' }}>
+                        {/* Timer Bar */}
+                        <div style={{ position: 'relative', width: 120, height: 14, background: 'rgba(255,255,255,0.1)', borderRadius: 7, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.15)' }}>
+                            <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: `${(kalan / 120) * 100}%`, background: kalan < 20 ? '#ef4444' : kalan < 45 ? '#f59e0b' : '#22c55e', borderRadius: 7, transition: 'width 1s linear,background 0.5s' }} />
+                        </div>
+                        <div style={{ fontFamily: 'var(--font-orbitron)', fontSize: '0.78rem', color: kalan < 20 ? 'var(--color-red)' : 'var(--color-cyan-light)', minWidth: 36 }}>
                             ⏱️ {kalan}s
                         </div>
-                        <div style={{ fontSize: '0.65rem', color: 'var(--color-text-dim)' }}>SPACE = Teşvik Et</div>
+                        <div style={{ fontSize: '0.65rem', color: 'var(--color-text-dim)' }}>SPACE=Teşvik</div>
                     </div>
                 </div>
 
-                <canvas ref={canvasRef} style={{ borderRadius: 10, border: '1px solid rgba(251,191,36,0.3)', maxWidth: '100%', display: 'block', imageRendering: 'auto' }} />
+                <canvas ref={canvasRef} style={{ borderRadius: 12, border: '1px solid rgba(251,191,36,0.3)', flex: 1, display: 'block', minHeight: 300, background: '#0f172a' }} />
 
-                {/* At kişilik ipucu */}
+                {/* ─── At Özellikleri Paneli ───────────────────────────────── */}
                 {benimAtim && (
-                    <div style={{ background: `${AT_RENK[benimAtim.personality] || '#7c3aed'}18`, border: `1px solid ${AT_RENK[benimAtim.personality] || '#7c3aed'}35`, borderRadius: 8, padding: '0.4rem 0.75rem', fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>
-                        <strong>Senin Atın ({benimAtim.name} — {KISILIK_ISIM[benimAtim.personality]}):</strong>{' '}
-                        {benimAtim.personality === 'hothead' && '🔥 Hakaret et → öfkelenip 2.8x hızlanır!'}
-                        {benimAtim.personality === 'stubborn' && '😤 "Hızlan" dersen yavaşlar, "dur" dersen uçar!'}
-                        {benimAtim.personality === 'lazy' && '💤 Sık sık "harika", "hadi" de yoksa uyur!'}
-                        {benimAtim.personality === 'gentle' && '🌸 "Güzelsin", "mükemmelsin" → 2x hız!'}
-                        {benimAtim.personality === 'competitive' && '⚡ Gerideyken kendiliğinden hızlanır!'}
+                    <div style={{ background: `${KISILIK_RENK[benimAtim.personality] || '#7c3aed'}18`, border: `1px solid ${KISILIK_RENK[benimAtim.personality] || '#7c3aed'}40`, borderRadius: 10, padding: '0.5rem 0.75rem', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                            <span style={{ fontWeight: 700, fontSize: '0.78rem', color: KISILIK_RENK[benimAtim.personality] }}>
+                                {benimAtim.name}
+                            </span>
+                            <span style={{ fontSize: '0.65rem', background: `${KISILIK_RENK[benimAtim.personality]}30`, border: `1px solid ${KISILIK_RENK[benimAtim.personality]}60`, borderRadius: 4, padding: '0 6px', color: KISILIK_RENK[benimAtim.personality] }}>
+                                {KISILIK_ISIM[benimAtim.personality]}
+                            </span>
+                            {/* Anlık hız */}
+                            <span style={{ fontSize: '0.63rem', color: hizBilgi.color, marginLeft: 'auto', fontWeight: 700 }}>
+                                {hizBilgi.label} ({suankiModifier.toFixed(1)}x)
+                            </span>
+                        </div>
+                        <div style={{ fontSize: '0.66rem', color: 'var(--color-text-muted)', lineHeight: 1.4 }}>
+                            💡 <em>{KISILIK_IPUCU[benimAtim.personality]}</em>
+                        </div>
                     </div>
                 )}
 
                 {/* Sıralama */}
-                <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                    {[...atlar].sort((a, b) => (atKonumlar?.[b.playerAddress]?.position ?? b.position ?? 0) - (atKonumlar?.[a.playerAddress]?.position ?? a.position ?? 0)).map((at, i) => (
-                        <div key={at.playerAddress} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', background: 'var(--color-surface)', border: `1px solid ${i === 0 ? 'rgba(251,191,36,0.5)' : 'var(--color-border)'}`, borderRadius: 6, padding: '0.2rem 0.5rem', fontSize: '0.65rem' }}>
-                            <span>{['🥇', '🥈', '🥉'][i] || `#${i + 1}`}</span>
-                            <span>{at.name}</span>
-                            <span style={{ color: 'var(--color-text-dim)' }}>{Math.round(atKonumlar?.[at.playerAddress]?.position ?? at.position ?? 0)}%</span>
-                        </div>
-                    ))}
+                <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                    {[...atlar].sort((a, b) => (atKonumlar?.[b.playerAddress]?.position ?? b.position ?? 0) - (atKonumlar?.[a.playerAddress]?.position ?? a.position ?? 0)).map((at, i) => {
+                        const duygu = atDuygular?.[at.playerAddress] ?? 'neutral'
+                        return (
+                            <div key={at.playerAddress} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', background: 'var(--color-surface)', border: `1px solid ${i === 0 ? 'rgba(251,191,36,0.5)' : 'var(--color-border)'}`, borderRadius: 6, padding: '0.2rem 0.5rem', fontSize: '0.63rem' }}>
+                                <span>{['🥇', '🥈', '🥉'][i] || `#${i + 1}`}</span>
+                                <span>{at.name}</span>
+                                {DUYGU_IKON[duygu] && <span>{DUYGU_IKON[duygu]}</span>}
+                                <span style={{ color: 'var(--color-text-dim)' }}>{Math.round(atKonumlar?.[at.playerAddress]?.position ?? at.position ?? 0)}%</span>
+                            </div>
+                        )
+                    })}
                 </div>
             </div>
 
-            {/* At Sohbet Paneli */}
+            {/* ─── At Sohbet Paneli ─────────────────────────────────────────── */}
             <div style={{ display: 'flex', flexDirection: 'column', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 12, overflow: 'hidden' }}>
                 <div style={{ padding: '0.65rem', borderBottom: '1px solid var(--color-border)' }}>
                     <div style={{ fontSize: '0.65rem', fontFamily: 'var(--font-orbitron)', color: 'var(--color-text-muted)', marginBottom: '0.2rem' }}>💬 ATINLA KONUŞ</div>
                     {benimAtim && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                            <div style={{ width: 8, height: 8, borderRadius: '50%', background: AT_RENK[benimAtim.personality] || '#7c3aed' }} />
+                            <div style={{ width: 8, height: 8, borderRadius: '50%', background: KISILIK_RENK[benimAtim.personality] || '#7c3aed' }} />
                             <span style={{ fontWeight: 700, fontSize: '0.75rem' }}>{benimAtim.name}</span>
                             <span style={{ fontSize: '0.6rem', color: 'var(--color-text-dim)' }}>({KISILIK_ISIM[benimAtim.personality]})</span>
                         </div>
                     )}
+                    {/* Kişilik tablosu */}
+                    <div style={{ marginTop: '0.4rem', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                        {atlar.map((at, i) => {
+                            const pos = atKonumlar?.[at.playerAddress]?.position ?? at.position ?? 0
+                            const duygu = atDuygular?.[at.playerAddress] ?? 'neutral'
+                            const isMe = at.playerAddress === address
+                            return (
+                                <div key={at.playerAddress} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.6rem', opacity: isMe ? 1 : 0.7 }}>
+                                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: KISILIK_RENK[at.personality] || '#888', flexShrink: 0 }} />
+                                    <span style={{ fontWeight: isMe ? 700 : 400, color: isMe ? KISILIK_RENK[at.personality] : 'var(--color-text-muted)' }}>{at.name}</span>
+                                    <span style={{ color: 'var(--color-text-dim)' }}>({KISILIK_ISIM[at.personality]})</span>
+                                    {DUYGU_IKON[duygu] && <span>{DUYGU_IKON[duygu]}</span>}
+                                    <div style={{ flex: 1, background: 'rgba(255,255,255,0.1)', borderRadius: 2, height: 4, overflow: 'hidden' }}>
+                                        <div style={{ width: `${pos}%`, height: '100%', background: KISILIK_RENK[at.personality] || '#888', borderRadius: 2 }} />
+                                    </div>
+                                    <span style={{ color: 'var(--color-text-dim)', minWidth: 26 }}>{Math.round(pos)}%</span>
+                                </div>
+                            )
+                        })}
+                    </div>
                 </div>
+
                 <div style={{ flex: 1, overflowY: 'auto', padding: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
                     {sohbetLog.length === 0 && <div style={{ color: 'var(--color-text-dim)', fontSize: '0.7rem', textAlign: 'center', marginTop: '0.75rem' }}>Atına bir şeyler söyle!</div>}
                     {sohbetLog.map((e, i) => (
@@ -342,10 +429,29 @@ export default function HorseRace({ atlar = [], onYarisBitti }) {
                         </div>
                     ))}
                 </div>
-                <form onSubmit={handleSohbet} style={{ display: 'flex', gap: '0.35rem', padding: '0.5rem', borderTop: '1px solid var(--color-border)' }}>
-                    <input className="input" style={{ flex: 1, fontSize: '0.72rem', padding: '0.3rem 0.45rem' }}
-                        placeholder="Atına yaz..." value={sohbet} onChange={e => setSohbet(e.target.value)} maxLength={80} />
-                    <button className="btn btn-primary btn-sm" type="submit">→</button>
+
+                {/* Girdi — copy/paste deaktif */}
+                <form onSubmit={handleSohbet} style={{ display: 'flex', gap: '0.35rem', padding: '0.5rem', borderTop: '1px solid var(--color-border)', flexDirection: 'column' }}>
+                    <div style={{ fontSize: '0.58rem', color: 'var(--color-text-dim)', textAlign: 'center' }}>
+                        ⚠️ Kopyala/yapıştır devre dışı
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.35rem' }}>
+                        <input
+                            className="input"
+                            style={{ flex: 1, fontSize: '0.72rem', padding: '0.3rem 0.45rem' }}
+                            placeholder="Atına yaz..."
+                            value={sohbet}
+                            onChange={e => setSohbet(e.target.value)}
+                            maxLength={120}
+                            onPaste={e => e.preventDefault()}
+                            onCopy={e => e.preventDefault()}
+                            onCut={e => e.preventDefault()}
+                            onContextMenu={e => e.preventDefault()}
+                            autoComplete="off"
+                            spellCheck={false}
+                        />
+                        <button className="btn btn-primary btn-sm" type="submit">→</button>
+                    </div>
                 </form>
             </div>
         </div>
