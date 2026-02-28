@@ -316,7 +316,7 @@ export default function HorseRace({ atlar = [], onYarisBitti }) {
                 const sprScale = 1.0   // büyütüldü: 0.6 → 1.0
                 const speedMod = atKonumlar?.[at.playerAddress]?.speedMod ?? 1.0
                 // Bitince finish line'da dursun, ekran dışına çıkmasın
-                const rawX = 60 + (pos / 100) * (finishLineX - 70)
+                const rawX = 60 + (pos / 200) * (finishLineX - 70)
                 const atX = Math.min(finishLineX - 8, rawX)
 
                 atCizSprite(ctx, atX, yPos, jokeySpriteRef, bitmis ? 0 : kareRef.current, at.color || '#8B4513', duygu, at.name, bitmis, isMe, sprScale, speedMod)
@@ -402,7 +402,7 @@ export default function HorseRace({ atlar = [], onYarisBitti }) {
                                 <span>{['🥇', '🥈', '🥉'][i] || `#${i + 1}`}</span>
                                 <span>{at.name}</span>
                                 {DUYGU_IKON[duygu] && <span>{DUYGU_IKON[duygu]}</span>}
-                                <span style={{ color: 'var(--color-text-dim)' }}>{Math.round(atKonumlar?.[at.playerAddress]?.position ?? at.position ?? 0)}%</span>
+                                <span style={{ color: 'var(--color-text-dim)' }}>{Math.round((atKonumlar?.[at.playerAddress]?.position ?? at.position ?? 0) / 2)}%</span>
                             </div>
                         )
                     })}
@@ -433,9 +433,9 @@ export default function HorseRace({ atlar = [], onYarisBitti }) {
                                     <span style={{ color: 'var(--color-text-dim)' }}>({KISILIK_ISIM[at.personality]})</span>
                                     {DUYGU_IKON[duygu] && <span>{DUYGU_IKON[duygu]}</span>}
                                     <div style={{ flex: 1, background: 'rgba(255,255,255,0.1)', borderRadius: 2, height: 4, overflow: 'hidden' }}>
-                                        <div style={{ width: `${pos}%`, height: '100%', background: KISILIK_RENK[at.personality] || '#888', borderRadius: 2 }} />
+                                        <div style={{ width: `${pos / 2}%`, height: '100%', background: KISILIK_RENK[at.personality] || '#888', borderRadius: 2 }} />
                                     </div>
-                                    <span style={{ color: 'var(--color-text-dim)', minWidth: 26 }}>{Math.round(pos)}%</span>
+                                    <span style={{ color: 'var(--color-text-dim)', minWidth: 26 }}>{Math.round(pos / 2)}%</span>
                                 </div>
                             )
                         })}

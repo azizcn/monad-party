@@ -39,8 +39,8 @@ function atYarisiBasla(io, roomId, oyuncular) {
             hiz *= speedMod
             if (at.personality === 'stubborn' && Math.random() < 0.12) hiz = -hiz * 0.2
             if (at.personality === 'lazy' && Math.random() < 0.08) hiz *= 0.05
-            at.position = Math.min(100, Math.max(0, at.position + hiz))
-            if (at.position >= 100 && !at.finished) {
+            at.position = Math.min(200, Math.max(0, at.position + hiz))
+            if (at.position >= 200 && !at.finished) {
                 at.finished = true
                 if (!yaris.kazanan) {
                     yaris.kazanan = at.playerAddress
