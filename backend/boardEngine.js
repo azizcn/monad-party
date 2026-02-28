@@ -1,242 +1,283 @@
 /**
- * boardEngine.js v2 — Pummel Party style
- * Double dice, HP system, turn-order sort, winding 28-tile path
+ * boardEngine.js v3 — Pummel Party Türkçe Edition
+ * - 48 karo, doğa temalı yılan yol
+ * - Anahtar sistemi: başlangıç 40, anahtar karolar +5, kasa açmak -40
+ * - Dinamik kasa: tek kasa, oyunculardan en uzak karoyo spawn edilir
+ * - Tur tabanlı mini game: herkes zar atınca mini game başlar
+ * - Pummel Party silahları mini game ödülü
  */
 
-// ─── Board Tiles (28 tiles, winding path) ─────────────────────────────────────
-const BOARD_TILES = [
-    { id: 0, type: 'start', label: '🏁', name: 'Start' },
-    { id: 1, type: 'normal', label: '🔵', name: 'Normal' },
-    { id: 2, type: 'chest', label: '🎁', name: 'Chest' },
-    { id: 3, type: 'normal', label: '🔵', name: 'Normal' },
-    { id: 4, type: 'trap', label: '💀', name: 'Trap' },
-    { id: 5, type: 'normal', label: '🔵', name: 'Normal' },
-    { id: 6, type: 'minigame', label: '🎲', name: 'Horse Race' },
-    { id: 7, type: 'normal', label: '🔵', name: 'Normal' },
-    { id: 8, type: 'chest', label: '🎁', name: 'Chest' },
-    { id: 9, type: 'trap', label: '💀', name: 'Trap' },
-    { id: 10, type: 'normal', label: '🔵', name: 'Normal' },
-    { id: 11, type: 'heal', label: '❤️', name: 'Heal' },
-    { id: 12, type: 'normal', label: '🔵', name: 'Normal' },
-    { id: 13, type: 'minigame', label: '🎲', name: 'Horse Race' },
-    { id: 14, type: 'chest', label: '🎁', name: 'Chest' },
-    { id: 15, type: 'trap', label: '💀', name: 'Trap' },
-    { id: 16, type: 'normal', label: '🔵', name: 'Normal' },
-    { id: 17, type: 'chest', label: '🎁', name: 'Chest' },
-    { id: 18, type: 'normal', label: '🔵', name: 'Normal' },
-    { id: 19, type: 'trap', label: '💀', name: 'Trap' },
-    { id: 20, type: 'normal', label: '🔵', name: 'Normal' },
-    { id: 21, type: 'minigame', label: '🎲', name: 'Horse Race' },
-    { id: 22, type: 'heal', label: '❤️', name: 'Heal' },
-    { id: 23, type: 'normal', label: '🔵', name: 'Normal' },
-    { id: 24, type: 'chest', label: '🎁', name: 'Chest' },
-    { id: 25, type: 'trap', label: '💀', name: 'Trap' },
-    { id: 26, type: 'normal', label: '🔵', name: 'Normal' },
-    { id: 27, type: 'chest', label: '🎁', name: 'Chest' },
+// ─── Silahlar ─────────────────────────────────────────────────────────────────
+const SILAHLAR = [
+    { id: 'bumerang', isim: 'Bumerang', ikon: '🪃' },
+    { id: 'bomba', isim: 'Bomba', ikon: '💣' },
+    { id: 'sapan', isim: 'Sapan', ikon: '🎯' },
+    { id: 'boks', isim: 'Boks Eldiveni', ikon: '🥊' },
+    { id: 'sandvic', isim: 'Sandviç', ikon: '🥪' },
+    { id: 'roket', isim: 'Roket Fırlatıcı', ikon: '🚀' },
+    { id: 'cekic', isim: 'Çekiç', ikon: '🔨' },
+    { id: 'kalkan', isim: 'Kalkan', ikon: '🛡️' },
+    { id: 'yildirim', isim: 'Yıldırım', ikon: '⚡' },
+    { id: 'buz', isim: 'Buz Topu', ikon: '🧊' },
+    { id: 'miknatıs', isim: 'Mega Mıknatıs', ikon: '🧲' },
+    { id: 'isınlanma', isim: 'Işınlanma', ikon: '✨' },
+    { id: 'testere', isim: 'Döner Testere', ikon: '⚙️' },
+    { id: 'top', isim: 'Dev Top', ikon: '💥' },
+    { id: 'muz', isim: 'Kaygan Muz', ikon: '🍌' },
+    { id: 'kanca', isim: 'Çelik Kanca', ikon: '🎣' },
+    { id: 'degnek', isim: 'Sihirli Değnek', ikon: '🪄' },
+    { id: 'iksir', isim: 'Can İksiri', ikon: '⚗️' },
+    { id: 'ok', isim: 'Ok ve Yay', ikon: '🏹' },
+    { id: 'el_bomba', isim: 'El Bombası', ikon: '💥' },
+    { id: 'buz_tabanca', isim: 'Buz Tabancası', ikon: '🔫' },
+    { id: 'lazer', isim: 'Lazer Tabanca', ikon: '🔆' },
+    { id: 'tornado', isim: 'Tornado', ikon: '🌪️' },
+    { id: 'kanguru', isim: 'Kanguru Zıplaması', ikon: '🦘' },
 ]
 
-const TOTAL_TILES = BOARD_TILES.length
-const CHESTS_TO_WIN = 3
+// ─── Board Karoları ────────────────────────────────────────────────────────────
+// 48 karo, tipler: start | normal | anahtar | tuzak | heal | portal
+const KARO_TIPLERI = [
+    'start', 'normal', 'anahtar', 'normal', 'tuzak', 'anahtar', // 0-5
+    'normal', 'normal', 'anahtar', 'tuzak', 'normal', 'heal',    // 6-11
+    'normal', 'anahtar', 'tuzak', 'normal',              // 12-15   corner/col
+    'normal', 'heal',              // 16-17   corner/col
+    'normal', 'anahtar', 'tuzak', 'normal', 'anahtar', 'normal',  // 18-23
+    'tuzak', 'anahtar', 'normal', 'anahtar', 'tuzak', 'normal',   // 24-29
+    'heal', 'normal', 'anahtar', 'normal',             // 30-33   corner/col
+    'normal', 'heal',              // 34-35   corner/col
+    'normal', 'anahtar', 'tuzak', 'normal', 'anahtar', 'normal',  // 36-41
+    'tuzak', 'anahtar', 'normal', 'normal', 'anahtar', 'normal',  // 42-47
+]
+
+const KARO_ISIMLER = {
+    start: 'Başlangıç', normal: 'Normal', anahtar: '+5 Anahtar',
+    tuzak: 'Tuzak', heal: 'Şifa', portal: 'Portal',
+}
+
+const TOPLAM_KARO = 48
+const KASA_ANAHTAR = 40  // kasa açmak için gereken anahtar
+const BASLANGGIC_ANAHTAR = 40
+const KASA_KAZANMAK = 3  // kaç kasa açılınca kazanılır
 const MAX_HP = 3
 
-// ─── In-memory state ──────────────────────────────────────────────────────────
+// ─── State ────────────────────────────────────────────────────────────────────
 const boardStates = new Map()
+
+function kasaSpawn(state) {
+    // Tüm oyunculardan en uzak karo (Manhattan distance toplamı en büyük)
+    let bestTile = 1, bestScore = 0
+    for (let t = 1; t < TOPLAM_KARO; t++) {
+        if (t === state.kasaTileId) continue
+        const score = state.oyuncular.reduce((acc, o) => {
+            const d = Math.abs(o.konum - t)
+            return acc + Math.min(d, TOPLAM_KARO - d)
+        }, 0)
+        if (score > bestScore) { bestScore = score; bestTile = t }
+    }
+    state.kasaTileId = bestTile
+    state.kasaAcikMi = false
+}
 
 function createBoardState(roomId, players) {
     const state = {
         roomId,
-        phase: 'initial_roll', // 'initial_roll' | 'rolling' | 'minigame' | 'finished'
-        players: players.map((p, i) => ({
-            address: p.address,
-            name: p.name || p.address?.slice(0, 8),
-            isBot: p.isBot || false,
-            position: 0,
-            chests: 0,
+        faz: 'initial_roll',
+        oyuncular: players.map((p, i) => ({
+            adres: p.address,
+            isim: p.name || p.address?.slice(0, 8),
+            bot: p.isBot || false,
+            konum: 0,
+            kasalar: 0,
+            anahtar: BASLANGGIC_ANAHTAR,
             hp: MAX_HP,
-            eliminated: false,
-            color: ['#7c3aed', '#06b6d4', '#fbbf24', '#ec4899', '#10b981', '#f97316', '#3b82f6', '#ef4444'][i % 8],
-            initialRoll: null, // for turn-order sort
+            elendi: false,
+            renk: ['#7c3aed', '#06b6d4', '#fbbf24', '#ec4899', '#10b981', '#f97316', '#3b82f6', '#ef4444'][i % 8],
+            initialRoll: null,
+            silah: null,
         })),
-        turn: 0,          // current player index (sorted by initial roll)
-        winner: null,
-        lastDice: null,   // [d1, d2]
-        log: [],
-        initialRollsLeft: players.length, // how many still need to roll for order
+        tur: 0,
+        kazanan: null,
+        sonZar: null,
+        kayit: [],
+        // Round tracking
+        roundNo: 0,
+        roundAtanlar: [],  // bu turda zar atan adresler
+        // Chest
+        kasaTileId: null,
+        kasaAcikMi: false,
     }
     boardStates.set(roomId, state)
+    // İlk kasa spawn
+    kasaSpawn(state)
     return state
 }
 
 function getBoardState(roomId) { return boardStates.get(roomId) }
 function cleanupBoardState(roomId) { boardStates.delete(roomId) }
 
-// ─── Initial Roll (determines turn order) ─────────────────────────────────────
-function initialRoll(roomId, address) {
+// ─── İlk Zar (sıra belirleme) ─────────────────────────────────────────────────
+function initialRoll(roomId, adres) {
     const state = boardStates.get(roomId)
-    if (!state) return { error: 'No board state' }
-    if (state.phase !== 'initial_roll') return { error: 'Wrong phase' }
+    if (!state || state.faz !== 'initial_roll') return { hata: 'Yanlış faz' }
+    const oyuncu = state.oyuncular.find(o => o.adres === adres)
+    if (!oyuncu || oyuncu.initialRoll !== null) return { hata: 'Zaten attı' }
 
-    const player = state.players.find(p => p.address === address)
-    if (!player) return { error: 'Player not found' }
-    if (player.initialRoll !== null) return { error: 'Already rolled' }
+    const z1 = r6(), z2 = r6()
+    oyuncu.initialRoll = z1 + z2
+    state.kayit.push(`${oyuncu.isim} → ${z1}+${z2}=${z1 + z2}`)
 
-    const d1 = Math.floor(Math.random() * 6) + 1
-    const d2 = Math.floor(Math.random() * 6) + 1
-    player.initialRoll = d1 + d2
-
-    state.log.push(`${player.name} rolled ${d1}+${d2}=${d1 + d2} for turn order`)
-
-    // Check if everyone (including bots) has rolled
-    const botsWithoutRoll = state.players.filter(p => p.isBot && p.initialRoll === null)
-    botsWithoutRoll.forEach(bot => {
-        const b1 = Math.floor(Math.random() * 6) + 1
-        const b2 = Math.floor(Math.random() * 6) + 1
-        bot.initialRoll = b1 + b2
-        state.log.push(`${bot.name} rolled ${b1}+${b2}=${b1 + b2} for turn order`)
+    // Botları da at
+    state.oyuncular.filter(o => o.bot && o.initialRoll === null).forEach(bot => {
+        const b1 = r6(), b2 = r6(); bot.initialRoll = b1 + b2
+        state.kayit.push(`${bot.isim} → ${b1}+${b2}=${b1 + b2}`)
     })
 
-    const allRolled = state.players.every(p => p.initialRoll !== null)
-    if (allRolled) {
-        // Sort players high→low by initial roll (= turn order)
-        state.players.sort((a, b) => b.initialRoll - a.initialRoll)
-        state.phase = 'rolling'
-        state.turn = 0
+    const hepsAtmis = state.oyuncular.every(o => o.initialRoll !== null)
+    if (hepsAtmis) {
+        state.oyuncular.sort((a, b) => b.initialRoll - a.initialRoll)
+        state.faz = 'zar'
+        state.tur = 0
+        state.roundAtanlar = []
         return {
-            ok: true,
-            orderDetermined: true,
-            state: getSafeBoardState(state),
-            message: `Turn order determined! ${state.players.map((p, i) => `${i + 1}. ${p.name} (${p.initialRoll})`).join(' → ')}`,
+            tamam: true, siraBelirli: true,
+            mesaj: `Sıra belirlendi! ${state.oyuncular.map((o, i) => `${i + 1}. ${o.isim}(${o.initialRoll})`).join(' → ')}`,
+            durum: getSafeDurum(state),
         }
     }
-
-    return {
-        ok: true,
-        orderDetermined: false,
-        state: getSafeBoardState(state),
-        message: `${player.name} rolled ${d1 + d2}. Waiting for others...`,
-    }
+    return { tamam: true, siraBelirli: false, mesaj: `${oyuncu.isim} ${z1 + z2} attı`, durum: getSafeDurum(state) }
 }
 
-// ─── Main Dice Roll ───────────────────────────────────────────────────────────
-function rollDice(roomId, address) {
+// ─── Zar At ───────────────────────────────────────────────────────────────────
+function zarAt(roomId, adres) {
     const state = boardStates.get(roomId)
-    if (!state) return { error: 'No board state' }
-    if (state.phase !== 'rolling') return { error: 'Wrong phase: ' + state.phase }
+    if (!state || state.faz !== 'zar') return { hata: 'Yanlış faz: ' + state.faz }
 
-    const currentPlayer = state.players[state.turn]
-    if (!currentPlayer) return { error: 'No current player' }
-    if (currentPlayer.address !== address) {
-        return { error: 'Not your turn', currentTurn: currentPlayer.address }
-    }
+    const mevcutOyuncu = state.oyuncular[state.tur]
+    if (!mevcutOyuncu) return { hata: 'Oyuncu yok' }
+    if (mevcutOyuncu.adres !== adres) return { hata: 'Senin sıran değil', mevcutSira: mevcutOyuncu.adres }
 
-    // Roll 2 dice
-    const d1 = Math.floor(Math.random() * 6) + 1
-    const d2 = Math.floor(Math.random() * 6) + 1
-    const total = d1 + d2
-    state.lastDice = [d1, d2]
+    const z1 = r6(), z2 = r6(), toplam = z1 + z2
+    state.sonZar = [z1, z2]
 
-    const oldPos = currentPlayer.position
-    const newPos = (oldPos + total) % TOTAL_TILES
-    currentPlayer.position = newPos
+    const eskiKonum = mevcutOyuncu.konum
+    const yeniKonum = (eskiKonum + toplam) % TOPLAM_KARO
+    mevcutOyuncu.konum = yeniKonum
 
-    const tile = BOARD_TILES[newPos]
-    let effect = { type: tile.type, tile, dice: [d1, d2], total, oldPos, newPos }
+    const karoTip = KARO_TIPLERI[yeniKonum]
+    let etki = { tip: karoTip, zar: [z1, z2], toplam, eskiKonum, yeniKonum }
 
-    if (tile.type === 'chest') {
-        currentPlayer.chests++
-        effect.message = `🎁 ${currentPlayer.name} rolled ${d1}+${d2}=${total}, landed on CHEST! (${currentPlayer.chests}/${CHESTS_TO_WIN})`
-        if (currentPlayer.chests >= CHESTS_TO_WIN) {
-            state.phase = 'finished'
-            state.winner = address
-            effect.winner = address
-            effect.message = `🏆 ${currentPlayer.name} collected 3 chests and WINS THE GAME!`
+    // Karo efekti
+    if (karoTip === 'anahtar') {
+        mevcutOyuncu.anahtar += 5
+        etki.mesaj = `🗝️ ${mevcutOyuncu.isim} ${z1}+${z2}=${toplam} attı → +5 Anahtar! (${mevcutOyuncu.anahtar} anahtar)`
+    } else if (karoTip === 'tuzak') {
+        mevcutOyuncu.hp = Math.max(0, mevcutOyuncu.hp - 1)
+        etki.mesaj = `💀 ${mevcutOyuncu.isim} ${z1}+${z2}=${toplam} attı → TUZAK! -1 Can (${mevcutOyuncu.hp}/${MAX_HP})`
+        if (mevcutOyuncu.hp <= 0) {
+            mevcutOyuncu.elendi = true; etki.elendi = adres
+            etki.mesaj += ` — ${mevcutOyuncu.isim} ELENDI!`
+            const saglar = state.oyuncular.filter(o => !o.elendi)
+            if (saglar.length === 1) { state.faz = 'bitti'; state.kazanan = saglar[0].adres; etki.kazanan = saglar[0].adres }
         }
-    } else if (tile.type === 'trap') {
-        currentPlayer.hp = Math.max(0, currentPlayer.hp - 1)
-        effect.message = `💀 ${currentPlayer.name} rolled ${d1}+${d2}=${total}, hit a TRAP! -1 HP (${currentPlayer.hp}/${MAX_HP} ❤️)`
-        if (currentPlayer.hp <= 0) {
-            currentPlayer.eliminated = true
-            effect.eliminated = address
-            effect.message += ` — ${currentPlayer.name} is ELIMINATED!`
-            // Check if only 1 alive
-            const alive = state.players.filter(p => !p.eliminated)
-            if (alive.length === 1) {
-                state.phase = 'finished'
-                state.winner = alive[0].address
-                effect.winner = alive[0].address
-            }
-        }
-    } else if (tile.type === 'heal') {
-        if (currentPlayer.hp < MAX_HP) {
-            currentPlayer.hp = Math.min(MAX_HP, currentPlayer.hp + 1)
-            effect.message = `❤️ ${currentPlayer.name} rolled ${d1}+${d2}=${total}, healed! (${currentPlayer.hp}/${MAX_HP} ❤️)`
-        } else {
-            effect.message = `❤️ ${currentPlayer.name} rolled ${d1}+${d2}=${total}, already full HP!`
-        }
-    } else if (tile.type === 'minigame') {
-        state.phase = 'minigame'
-        effect.message = `🎲 ${currentPlayer.name} rolled ${d1}+${d2}=${total} — HORSE RACE!`
+    } else if (karoTip === 'heal') {
+        mevcutOyuncu.hp = Math.min(MAX_HP, mevcutOyuncu.hp + 1)
+        etki.mesaj = `❤️ ${mevcutOyuncu.isim} ${z1}+${z2}=${toplam} attı → ŞİFA! +1 Can (${mevcutOyuncu.hp}/${MAX_HP})`
     } else {
-        effect.message = `${currentPlayer.name} rolled ${d1}+${d2}=${total} → ${tile.name}`
+        etki.mesaj = `${mevcutOyuncu.isim} ${z1}+${z2}=${toplam} attı → ${KARO_ISIMLER[karoTip] || 'Normal'}`
     }
 
-    state.log.push(effect.message)
-
-    // Advance turn (skip eliminated players)
-    if (tile.type !== 'minigame' && !effect.winner) {
-        advanceTurn(state)
+    // Kasa kontrolü: üzerinden geçiyor mu?
+    if (yeniKonum === state.kasaTileId && mevcutOyuncu.anahtar >= KASA_ANAHTAR && !etki.kazanan) {
+        mevcutOyuncu.anahtar -= KASA_ANAHTAR
+        mevcutOyuncu.kasalar++
+        etki.kasaAcildi = adres
+        etki.mesaj += ` 🎁 KASA AÇILDI! (${mevcutOyuncu.kasalar}/${KASA_KAZANMAK})`
+        if (mevcutOyuncu.kasalar >= KASA_KAZANMAK) {
+            state.faz = 'bitti'; state.kazanan = adres; etki.kazanan = adres
+        } else {
+            kasaSpawn(state) // yeni kasa konumlan
+        }
     }
 
-    return { ok: true, state: getSafeBoardState(state), effect }
+    state.kayit.push(etki.mesaj)
+
+    // Sıra ilerlet
+    if (!etki.kazanan) {
+        state.roundAtanlar.push(adres)
+        const sagOyuncular = state.oyuncular.filter(o => !o.elendi)
+
+        // Herkes bu turda attı mı?
+        const hepsAtmis = sagOyuncular.every(o => state.roundAtanlar.includes(o.adres))
+        if (hepsAtmis) {
+            state.faz = 'mini_game'
+            state.roundAtanlar = []
+            state.roundNo++
+            etki.miniGameBasla = true
+            etki.mesaj += ' 🐴 Mini Game başlıyor!'
+        } else {
+            siradakiTuru(state)
+        }
+    }
+
+    return { tamam: true, durum: getSafeDurum(state), etki }
 }
 
-function advanceTurn(state) {
-    let next = (state.turn + 1) % state.players.length
-    let tries = 0
-    while (state.players[next]?.eliminated && tries < state.players.length) {
-        next = (next + 1) % state.players.length
-        tries++
-    }
-    state.turn = next
-}
-
-function afterMinigame(roomId, winnerAddress) {
+// Mini game bitti
+function miniGameBitti(roomId, sıralama) {
+    // sıralama: [{ adres, puan }] — birinciden sonuncuya
     const state = boardStates.get(roomId)
     if (!state) return null
 
-    if (winnerAddress) {
-        const winner = state.players.find(p => p.address === winnerAddress)
-        if (winner) {
-            winner.chests++
-            state.log.push(`🐴 ${winner.name} won Horse Race! +1 chest (${winner.chests}/${CHESTS_TO_WIN})`)
-            if (winner.chests >= CHESTS_TO_WIN) {
-                state.phase = 'finished'
-                state.winner = winnerAddress
-                return { state: getSafeBoardState(state), winner: winnerAddress }
-            }
+    const anahtarOdul = [20, 15, 10, 5, 0] // 1. 20 anahtar, 2. 15...
+
+    sıralama.forEach(({ adres }, i) => {
+        const oyuncu = state.oyuncular.find(o => o.adres === adres)
+        if (!oyuncu) return
+        const odul = anahtarOdul[i] || 0
+        oyuncu.anahtar += odul
+        // 1. ye silah
+        if (i === 0) {
+            oyuncu.silah = SILAHLAR[Math.floor(Math.random() * SILAHLAR.length)]
         }
-    }
+        state.kayit.push(`${oyuncu.isim}: +${odul} anahtar${i === 0 ? ` + ${oyuncu.silah.ikon} ${oyuncu.silah.isim}` : ''}`)
+    })
 
-    state.phase = 'rolling'
-    advanceTurn(state)
-    return { state: getSafeBoardState(state) }
+    state.faz = 'zar'
+    siradakiTuru(state)
+
+    return { durum: getSafeDurum(state), oduller: sıralama.map((s, i) => ({ ...s, anahtar: anahtarOdul[i] || 0 })) }
 }
 
-function getSafeBoardState(state) {
+function siradakiTuru(state) {
+    let next = (state.tur + 1) % state.oyuncular.length
+    let tries = 0
+    while (state.oyuncular[next]?.elendi && tries < state.oyuncular.length) {
+        next = (next + 1) % state.oyuncular.length; tries++
+    }
+    state.tur = next
+}
+
+function getSafeDurum(state) {
     return {
-        players: state.players,
-        turn: state.turn,
-        currentPlayer: state.players.filter(p => !p.eliminated)[state.turn]?.address || state.players[state.turn]?.address,
-        phase: state.phase,
-        winner: state.winner,
-        lastDice: state.lastDice,
-        log: state.log.slice(-12),
-        tiles: BOARD_TILES,
+        oyuncular: state.oyuncular,
+        tur: state.tur,
+        mevcutOyuncu: state.oyuncular.filter(o => !o.elendi)[0]?.adres || state.oyuncular[state.tur]?.adres,
+        faz: state.faz,
+        kazanan: state.kazanan,
+        sonZar: state.sonZar,
+        kayit: state.kayit.slice(-15),
+        karoTipleri: KARO_TIPLERI,
+        kasaTileId: state.kasaTileId,
+        roundNo: state.roundNo,
+        roundAtanlar: state.roundAtanlar,
     }
 }
+
+function r6() { return Math.floor(Math.random() * 6) + 1 }
 
 module.exports = {
-    BOARD_TILES, CHESTS_TO_WIN, MAX_HP,
+    KARO_TIPLERI, KARO_ISIMLER, SILAHLAR, TOPLAM_KARO, KASA_ANAHTAR, KASA_KAZANMAK, MAX_HP, BASLANGGIC_ANAHTAR,
     createBoardState, getBoardState, cleanupBoardState,
-    initialRoll, rollDice, afterMinigame, getSafeBoardState,
+    initialRoll, zarAt, miniGameBitti, getSafeDurum,
 }

@@ -1,263 +1,331 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAccount } from 'wagmi'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import useGameStore from '../store/gameStore'
 
-// ─── Top-Down Horse Race ──────────────────────────────────────────────────────
-// Bird's eye view: oval/circular track, horses as colored ovals moving around it
+// ─── Düz Pist At Yarışı — Üstten Bakış ───────────────────────────────────────
+// Tıpkı referans resmi gibi: yatay pistte yan yana atlar, soldan sağa gidiyor
 
-const HORSE_COLORS = {
-    hothead: '#ef4444', stubborn: '#8b5cf6',
-    lazy: '#94a3b8', gentle: '#10b981', competitive: '#f59e0b',
+const PIST_W = 860
+const SERI_Y = 80      // her şeridin yüksekliği
+const SERI_PAD = 20
+const BITIS_X = PIST_W - 60
+const START_X = 60
+
+// At kişilik renkleri
+const AT_RENK = {
+    hothead: '#8B4513', stubborn: '#696969', lazy: '#D2B48C',
+    gentle: '#F5DEB3', competitive: '#8B0000',
 }
+const JOKEY_RENK = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#e67e22', '#95a5a6']
+const DUYGU_IKON = { angry: '🔥', calm: '😌', happy: '😊', sad: '😢', defiant: '😤', motivated: '💪', sleepy: '💤', determined: '⚡', focused: '🎯', cocky: '😏', neutral: '' }
+const KISILIK_ISIM = { hothead: 'Ateşli', stubborn: 'İnatçı', lazy: 'Tembel', gentle: 'Nazik', competitive: 'Hırslı' }
 
-const EMOTION_ICONS = {
-    angry: '🔥', calm: '😌', happy: '😊', sad: '😢',
-    defiant: '😤', motivated: '💪', sleepy: '💤',
-    determined: '⚡', focused: '🎯', cocky: '😏', neutral: '',
-}
-
-const W = 700, H = 420
-const CX = W / 2, CY = H / 2
-// Oval track dimensions
-const RX = 260, RY = 155
-
-// Convert horse position (0-100) to (x,y) on oval track
-function posToXY(position, laneOffset = 0) {
-    // position 0-100 → angle around oval (start at bottom)
-    const t = (position / 100) * Math.PI * 2 - Math.PI / 2
-    const x = CX + (RX + laneOffset) * Math.cos(t)
-    const y = CY + (RY + laneOffset) * Math.sin(t)
-    return { x, y, angle: t }
-}
-
-// Draw top-down horse (oval body + direction)
-function drawTopDownHorse(ctx, x, y, angle, color, emotion, name, isMe, finished) {
-    const glow = finished ? '#fbbf24' : (EMOTION_ICONS[emotion] ? color : color)
+function atCiz(ctx, x, y, seriH, atRenk, jokeyRenk, duygu, kare, isim, bitti) {
+    const kanat = Math.sin(kare * 0.4) * 5  // bacak titremesi
     ctx.save()
     ctx.translate(x, y)
-    ctx.rotate(angle + Math.PI / 2)
 
-    // Shadow
-    ctx.fillStyle = 'rgba(0,0,0,0.3)'
-    ctx.beginPath(); ctx.ellipse(2, 2, 16, 10, 0, 0, Math.PI * 2); ctx.fill()
+    // Gölge
+    ctx.fillStyle = 'rgba(0,0,0,0.2)'
+    ctx.beginPath(); ctx.ellipse(0, 18, 28, 6, 0, 0, Math.PI * 2); ctx.fill()
 
-    // Glow
-    if (emotion && emotion !== 'neutral') {
-        ctx.shadowColor = glow; ctx.shadowBlur = 16
-    }
-
-    // Body (oval)
-    ctx.fillStyle = color
-    ctx.beginPath(); ctx.ellipse(0, 0, 16, 10, 0, 0, Math.PI * 2); ctx.fill()
+    // At gövdesi (yatay oval)
+    const govdeShadow = duygu !== 'neutral' && duygu ? 12 : 4
+    ctx.shadowColor = AT_RENK[duygu] || atRenk || '#8B4513'
+    ctx.shadowBlur = govdeShadow
+    ctx.fillStyle = atRenk || '#8B4513'
+    ctx.beginPath(); ctx.ellipse(0, 0, 30, 13, 0, 0, Math.PI * 2); ctx.fill()
     ctx.shadowBlur = 0
 
-    // Head bump (front)
-    ctx.fillStyle = color
-    ctx.beginPath(); ctx.ellipse(0, -14, 7, 5, 0, 0, Math.PI * 2); ctx.fill()
+    // At başı (sağda — bitiş yönü)
+    ctx.fillStyle = atRenk || '#8B4513'
+    ctx.beginPath(); ctx.ellipse(32, -2, 10, 7, -0.3, 0, Math.PI * 2); ctx.fill()
 
-    // Mane stripe
-    ctx.fillStyle = 'rgba(0,0,0,0.35)'
-    ctx.fillRect(-2, -18, 4, 10)
+    // Burun
+    ctx.fillStyle = 'rgba(0,0,0,0.3)'
+    ctx.beginPath(); ctx.ellipse(40, 0, 3, 2, 0, 0, Math.PI * 2); ctx.fill()
 
-    // Outline
-    ctx.strokeStyle = isMe ? '#fbbf24' : 'rgba(255,255,255,0.6)'
-    ctx.lineWidth = isMe ? 2.5 : 1.5
-    ctx.beginPath(); ctx.ellipse(0, 0, 16, 10, 0, 0, Math.PI * 2); ctx.stroke()
+    // Yele (karanlık şerit)
+    ctx.fillStyle = 'rgba(0,0,0,0.4)'
+    ctx.fillRect(-5, -13, 18, 5)
 
-    // Finish check
-    if (finished) {
-        ctx.font = '12px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-        ctx.fillText('🏆', 0, 0)
+    // Kuyruk (solda)
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'
+    ctx.beginPath(); ctx.ellipse(-33, 0, 8, 4, 0.4, 0, Math.PI * 2); ctx.fill()
+
+    // Bacaklar (4 adet, animasyonlu)
+    ctx.fillStyle = '#5a3300'
+    // Ön bacaklar
+    ctx.beginPath(); ctx.ellipse(16, 13 + kanat, 4, 10, 0.1, 0, Math.PI * 2); ctx.fill()
+    ctx.beginPath(); ctx.ellipse(16, -13 - kanat, 4, 10, -0.1, 0, Math.PI * 2); ctx.fill()
+    // Arka bacaklar
+    ctx.beginPath(); ctx.ellipse(-16, 13 - kanat, 4, 10, 0.2, 0, Math.PI * 2); ctx.fill()
+    ctx.beginPath(); ctx.ellipse(-16, -13 + kanat, 4, 10, -0.2, 0, Math.PI * 2); ctx.fill()
+
+    // Jokay
+    ctx.fillStyle = jokeyRenk
+    ctx.beginPath(); ctx.ellipse(-5, -12, 11, 8, 0, 0, Math.PI * 2); ctx.fill()
+
+    // Jokey kaskı
+    ctx.fillStyle = 'rgba(255,255,255,0.6)'
+    ctx.beginPath(); ctx.arc(-5, -18, 6, Math.PI, 0); ctx.fill()
+
+    // Bitti işareti
+    if (bitti) {
+        ctx.font = '18px serif'; ctx.textAlign = 'center'
+        ctx.fillText('🏆', 0, -30)
+    }
+
+    // Duygu
+    if (duygu && DUYGU_IKON[duygu]) {
+        ctx.font = '14px serif'; ctx.textAlign = 'center'
+        ctx.fillText(DUYGU_IKON[duygu], 30, -22)
     }
 
     ctx.restore()
 
-    // Floating name + emotion
+    // İsim etiketi
+    ctx.fillStyle = 'rgba(0,0,0,0.6)'
+    ctx.fillRect(x - 35, y - seriH / 2 + 4, 70, 16)
+    ctx.fillStyle = '#fff'
     ctx.font = 'bold 9px monospace'
-    ctx.fillStyle = isMe ? '#fbbf24' : 'rgba(255,255,255,0.9)'
     ctx.textAlign = 'center'
-    ctx.fillText(name.slice(0, 8), x, y - 24)
-    if (emotion && EMOTION_ICONS[emotion]) {
-        ctx.font = '11px serif'
-        ctx.fillText(EMOTION_ICONS[emotion], x + 14, y - 20)
-    }
+    ctx.fillText(isim.slice(0, 10), x, y - seriH / 2 + 15)
 }
 
-export default function HorseRace({ horses = [] }) {
+export default function HorseRace({ atlar = [], onYarisBitti }) {
     const { address } = useAccount()
     const canvasRef = useRef(null)
     const rafRef = useRef(null)
-    const frameRef = useRef(0)
-    const [chatMsg, setChatMsg] = useState('')
-    const [chatLog, setChatLog] = useState([])
-    const [winner, setWinner] = useState(null)
+    const kareRef = useRef(0)
+    const [sohbet, setSohbet] = useState('')
+    const [sohbetLog, setSohbetLog] = useState([])
+    const [bitis, setBitis] = useState(null)
+    const [kalan, setKalan] = useState(35)
+    const timerRef = useRef(null)
+    const baslangicRef = useRef(Date.now())
 
-    const { sendHorseChat, encourageHorse, horsePositions, horseEmotions, horseReplies } = useGameStore()
+    const { atSohbetGonder, atTesvik, atKonumlar, atDuygular, atCevaplar } = useGameStore()
+    const benimAtim = atlar.find(a => a.playerAddress === address)
 
-    const myHorse = horses.find(h => h.playerAddress === address)
-
-    // Append new replies
+    // Zamanlayıcı
     useEffect(() => {
-        if (horseReplies?.length) {
-            setChatLog(prev => {
-                const last = horseReplies[horseReplies.length - 1]
-                if (prev.length && prev[prev.length - 1].reply === last.reply) return prev
-                return [...prev.slice(-15), last]
-            })
-        }
-    }, [horseReplies])
+        baslangicRef.current = Date.now()
+        timerRef.current = setInterval(() => {
+            const gecen = Math.floor((Date.now() - baslangicRef.current) / 1000)
+            const k = Math.max(0, 35 - gecen)
+            setKalan(k)
+            if (k <= 0) { clearInterval(timerRef.current); handleYarisBitti() }
+        }, 1000)
+        return () => clearInterval(timerRef.current)
+    }, [])
 
-    // Game loop
+    // Cevapları logla
+    useEffect(() => {
+        if (atCevaplar?.length) {
+            const son = atCevaplar[atCevaplar.length - 1]
+            setSohbetLog(prev => [...prev.slice(-12), son])
+        }
+    }, [atCevaplar])
+
+    const handleYarisBitti = () => {
+        const sonAtar = [...atlar].sort((a, b) => {
+            const posA = atKonumlar?.[a.playerAddress]?.position ?? a.position ?? 0
+            const posB = atKonumlar?.[b.playerAddress]?.position ?? b.position ?? 0
+            return posB - posA
+        })
+        const siralama = sonAtar.map(a => ({ adres: a.playerAddress }))
+        onYarisBitti?.(siralama)
+        setBitis(sonAtar[0]?.playerAddress)
+    }
+
+    // Oyun döngüsü — düz pist çizimi
     useEffect(() => {
         const canvas = canvasRef.current
-        if (!canvas || !horses.length) return
+        if (!canvas || !atlar.length) return
         const ctx = canvas.getContext('2d')
-        canvas.width = W; canvas.height = H
+        const YUKSEKLIK = atlar.length * SERI_Y + SERI_PAD * 2
+        canvas.width = PIST_W; canvas.height = YUKSEKLIK
 
         const loop = () => {
-            frameRef.current++
-            ctx.clearRect(0, 0, W, H)
+            kareRef.current++
+            ctx.clearRect(0, 0, PIST_W, YUKSEKLIK)
 
-            // Background
-            const bg = ctx.createRadialGradient(CX, CY, 30, CX, CY, 320)
-            bg.addColorStop(0, '#0d1b2a')
-            bg.addColorStop(1, '#07071a')
-            ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H)
+            // Çim kenarlar
+            ctx.fillStyle = '#2d8a2d'
+            ctx.fillRect(0, 0, PIST_W, SERI_PAD)
+            ctx.fillRect(0, YUKSEKLIK - SERI_PAD, PIST_W, SERI_PAD)
 
-            // Outer oval track (grass/dirt)
-            ctx.fillStyle = '#1a2e1a'
-            ctx.beginPath(); ctx.ellipse(CX, CY, RX + 50, RY + 50, 0, 0, Math.PI * 2); ctx.fill()
+            // Pist zemin (kum/toprak rengi)
+            const pistGrad = ctx.createLinearGradient(0, SERI_PAD, 0, YUKSEKLIK - SERI_PAD)
+            pistGrad.addColorStop(0, '#c8a96e')
+            pistGrad.addColorStop(0.5, '#d4b483')
+            pistGrad.addColorStop(1, '#c8a96e')
+            ctx.fillStyle = pistGrad
+            ctx.fillRect(0, SERI_PAD, PIST_W, YUKSEKLIK - SERI_PAD * 2)
 
-            // Track surface
-            ctx.fillStyle = '#7c4412'
-            ctx.beginPath(); ctx.ellipse(CX, CY, RX + 30, RY + 30, 0, 0, Math.PI * 2); ctx.fill()
+            // Pist çizgileri (şeritleri ayır)
+            atlar.forEach((_, i) => {
+                if (i > 0) {
+                    ctx.strokeStyle = 'rgba(255,255,255,0.25)'
+                    ctx.lineWidth = 1.5
+                    ctx.setLineDash([12, 8])
+                    const y = SERI_PAD + i * SERI_Y
+                    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(PIST_W, y); ctx.stroke()
+                    ctx.setLineDash([])
+                }
+            })
 
-            // Inner oval (infield)
-            ctx.fillStyle = '#14432a'
-            ctx.beginPath(); ctx.ellipse(CX, CY, RX - 30, RY - 30, 0, 0, Math.PI * 2); ctx.fill()
-
-            // Track outline
-            ctx.strokeStyle = 'rgba(255,255,255,0.15)'
-            ctx.lineWidth = 2
-            ctx.beginPath(); ctx.ellipse(CX, CY, RX + 30, RY + 30, 0, 0, Math.PI * 2); ctx.stroke()
-            ctx.beginPath(); ctx.ellipse(CX, CY, RX - 28, RY - 28, 0, 0, Math.PI * 2); ctx.stroke()
-
-            // Lane dividers
-            for (let i = 0; i < horses.length; i++) {
-                const laneR = RX - 20 + i * (60 / Math.max(horses.length, 1))
-                ctx.strokeStyle = 'rgba(255,255,255,0.06)'
+            // Mesafe işaretleri
+            for (let x = 100; x < PIST_W - 60; x += 150) {
+                ctx.strokeStyle = 'rgba(255,255,255,0.15)'
                 ctx.lineWidth = 1
-                ctx.beginPath(); ctx.ellipse(CX, CY, laneR, laneR * (RY / RX), 0, 0, Math.PI * 2); ctx.stroke()
+                ctx.setLineDash([4, 4])
+                ctx.beginPath(); ctx.moveTo(x, SERI_PAD); ctx.lineTo(x, YUKSEKLIK - SERI_PAD); ctx.stroke()
+                ctx.setLineDash([])
             }
 
-            // Finish line
-            const finishAngle = -Math.PI / 2
-            const fx1 = CX + (RX - 30) * Math.cos(finishAngle)
-            const fy1 = CY + (RY - 30) * Math.sin(finishAngle)
-            const fx2 = CX + (RX + 30) * Math.cos(finishAngle)
-            const fy2 = CY + (RY + 30) * Math.sin(finishAngle)
-            ctx.strokeStyle = '#fbbf24'
+            // START çizgisi
+            ctx.strokeStyle = 'rgba(255,255,255,0.8)'
             ctx.lineWidth = 3
-            ctx.beginPath(); ctx.moveTo(fx1, fy1); ctx.lineTo(fx2, fy2); ctx.stroke()
-            ctx.fillStyle = '#fbbf24'
-            ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center'
-            ctx.fillText('START/FINISH', CX, CY - RY - 38)
+            ctx.beginPath(); ctx.moveTo(START_X, SERI_PAD); ctx.lineTo(START_X, YUKSEKLIK - SERI_PAD); ctx.stroke()
 
-            // Center text
-            ctx.fillStyle = 'rgba(255,255,255,0.15)'
-            ctx.font = 'bold 20px var(--font-orbitron, monospace)'
-            ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-            ctx.fillText('HORSE', CX, CY - 12)
-            ctx.fillText('RACE', CX, CY + 12)
+            // BİTİŞ çizgisi (damalı)
+            for (let y = SERI_PAD; y < YUKSEKLIK - SERI_PAD; y += 10) {
+                ctx.fillStyle = (Math.floor(y / 10)) % 2 === 0 ? '#000' : '#fff'
+                ctx.fillRect(BITIS_X, y, 8, 10)
+            }
+            ctx.fillStyle = '#fff'
+            ctx.font = 'bold 11px monospace'
+            ctx.textAlign = 'center'
+            ctx.fillText('BİTİŞ', BITIS_X + 4, SERI_PAD - 4)
 
-            // Draw horses (each in own lane)
-            horses.forEach((horse, i) => {
-                const pos = horsePositions?.[horse.playerAddress]?.position ?? horse.position ?? 0
-                const emotion = horseEmotions?.[horse.playerAddress] ?? 'neutral'
-                const isMe = horse.playerAddress === address
-                const laneOffset = -20 + i * (50 / Math.max(horses.length, 1))
-                const { x, y, angle } = posToXY(pos, laneOffset)
-                const color = HORSE_COLORS[horse.personality] || '#7c3aed'
-                const fin = horsePositions?.[horse.playerAddress]?.finished || false
-                drawTopDownHorse(ctx, x, y, angle, color, emotion, horse.name, isMe, fin)
+            // Atları çiz
+            atlar.forEach((at, i) => {
+                const pos = atKonumlar?.[at.playerAddress]?.position ?? at.position ?? 0
+                const duygu = atDuygular?.[at.playerAddress] ?? 'neutral'
+                const seriMerkezY = SERI_PAD + i * SERI_Y + SERI_Y / 2
+                const atX = START_X + (pos / 100) * (BITIS_X - START_X - 30)
+                const bitmis = atKonumlar?.[at.playerAddress]?.finished || false
+                const isMe = at.playerAddress === address
+                const atRengi = AT_RENK[at.personality] || '#8B4513'
+                const jokeyRengi = JOKEY_RENK[i % 8]
+
+                atCiz(ctx, atX, seriMerkezY, SERI_Y, atRengi, jokeyRengi, duygu, kareRef.current, at.name, bitmis)
+
+                // Benim atım vurgu
+                if (isMe) {
+                    ctx.strokeStyle = '#fbbf24'
+                    ctx.lineWidth = 2
+                    ctx.setLineDash([3, 2])
+                    ctx.strokeRect(atX - 38, seriMerkezY - SERI_Y / 2 + 2, 80, SERI_Y - 4)
+                    ctx.setLineDash([])
+                }
+
+                // Şerit numarası
+                ctx.fillStyle = 'rgba(255,255,255,0.5)'
+                ctx.font = 'bold 11px monospace'
+                ctx.textAlign = 'center'
+                ctx.fillText(String(i + 1), 25, seriMerkezY + 4)
             })
 
             rafRef.current = requestAnimationFrame(loop)
         }
         rafRef.current = requestAnimationFrame(loop)
         return () => cancelAnimationFrame(rafRef.current)
-    }, [horses, horsePositions, horseEmotions, address])
+    }, [atlar, atKonumlar, atDuygular, address])
 
+    // SPACE = teşvik
     useEffect(() => {
-        const onKey = e => { if (e.code === 'Space') { e.preventDefault(); encourageHorse(address) } }
-        window.addEventListener('keydown', onKey)
-        return () => window.removeEventListener('keydown', onKey)
-    }, [address, encourageHorse])
+        const fn = e => { if (e.code === 'Space') { e.preventDefault(); atTesvik(address) } }
+        window.addEventListener('keydown', fn)
+        return () => window.removeEventListener('keydown', fn)
+    }, [address, atTesvik])
 
-    const handleSend = e => {
+    const handleSohbet = e => {
         e.preventDefault()
-        if (!chatMsg.trim()) return
-        sendHorseChat(address, chatMsg.trim())
-        setChatLog(prev => [...prev.slice(-15), { playerAddress: address, message: chatMsg, horseName: myHorse?.name }])
-        setChatMsg('')
+        if (!sohbet.trim()) return
+        atSohbetGonder(address, sohbet.trim())
+        setSohbetLog(prev => [...prev.slice(-12), { adres: address, mesaj: sohbet, atIsim: benimAtim?.name }])
+        setSohbet('')
     }
 
+    const PIST_TOPLAM_H = atlar.length * SERI_Y + SERI_PAD * 2
+
     return (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 260px', gap: '1rem', height: '100%', padding: '1rem' }}>
-            {/* Race Canvas */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 270px', gap: '0.75rem', height: '100%', padding: '0.75rem' }}>
+
+            {/* Pist */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {/* Başlık */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ fontFamily: 'var(--font-pixel)', fontSize: '0.7rem', color: 'var(--color-yellow)', letterSpacing: '0.2em' }}>🐴 HORSE RACE — TOP VIEW</div>
-                    <div style={{ fontSize: '0.65rem', color: 'var(--color-text-dim)', fontFamily: 'var(--font-orbitron)' }}>SPACE = Encourage | Chat to boost</div>
+                    <div style={{ fontFamily: 'var(--font-pixel)', fontSize: '0.7rem', color: 'var(--color-yellow)', letterSpacing: '0.15em' }}>🐴 AT YARIŞI</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                        <div style={{ fontFamily: 'var(--font-orbitron)', fontSize: '0.7rem', color: kalan < 10 ? 'var(--color-red)' : 'var(--color-cyan-light)' }}>
+                            ⏱️ {kalan}s
+                        </div>
+                        <div style={{ fontSize: '0.65rem', color: 'var(--color-text-dim)' }}>SPACE = Teşvik Et</div>
+                    </div>
                 </div>
-                <canvas ref={canvasRef} style={{ borderRadius: 12, border: '1px solid rgba(251,191,36,0.3)', maxWidth: '100%', boxShadow: '0 0 30px rgba(251,191,36,0.1)' }} />
-                {myHorse && (
-                    <div style={{ background: `${HORSE_COLORS[myHorse.personality]}15`, border: `1px solid ${HORSE_COLORS[myHorse.personality]}40`, borderRadius: 8, padding: '0.4rem 0.75rem', fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>
-                        {myHorse.personality === 'hothead' && '🔥 Hakaret et (\"yavaş\", \"berbat\") → Sinirlenip 2.8x hızlanır!'}
-                        {myHorse.personality === 'stubborn' && '😤 İnatçı! \"Hızlan\" dersen yavaşlar, \"dur\" dersen uçar!'}
-                        {myHorse.personality === 'lazy' && '💤 Tembel! Sık sık ov yoksa uyuyakalar...'}
-                        {myHorse.personality === 'gentle' && '🌸 Nazik! \"Güzelsin\", \"harikasin\" de → 2x hız!'}
-                        {myHorse.personality === 'competitive' && '⚡ Rekabetçi! Geriden gelirken patlama yapar!'}
+
+                <canvas ref={canvasRef} style={{ borderRadius: 10, border: '1px solid rgba(251,191,36,0.3)', maxWidth: '100%', display: 'block', imageRendering: 'auto' }} />
+
+                {/* At kişilik ipucu */}
+                {benimAtim && (
+                    <div style={{ background: `${AT_RENK[benimAtim.personality] || '#7c3aed'}18`, border: `1px solid ${AT_RENK[benimAtim.personality] || '#7c3aed'}35`, borderRadius: 8, padding: '0.4rem 0.75rem', fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>
+                        <strong>Senin Atın ({benimAtim.name} — {KISILIK_ISIM[benimAtim.personality]}):</strong>{' '}
+                        {benimAtim.personality === 'hothead' && '🔥 Hakaret et → öfkelenip 2.8x hızlanır!'}
+                        {benimAtim.personality === 'stubborn' && '😤 "Hızlan" dersen yavaşlar, "dur" dersen uçar!'}
+                        {benimAtim.personality === 'lazy' && '💤 Sık sık "harika", "hadi" de yoksa uyur!'}
+                        {benimAtim.personality === 'gentle' && '🌸 "Güzelsin", "mükemmelsin" → 2x hız!'}
+                        {benimAtim.personality === 'competitive' && '⚡ Gerideyken kendiliğinden hızlanır!'}
                     </div>
                 )}
-            </div>
 
-            {/* Horse Chat — Only YOUR horse */}
-            <div style={{ display: 'flex', flexDirection: 'column', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 12, overflow: 'hidden' }}>
-                <div style={{ padding: '0.75rem', borderBottom: '1px solid var(--color-border)' }}>
-                    <div style={{ fontFamily: 'var(--font-orbitron)', fontSize: '0.65rem', color: 'var(--color-text-muted)', marginBottom: '0.25rem' }}>💬 YOUR HORSE CHAT</div>
-                    {myHorse && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <div style={{ width: 10, height: 10, borderRadius: '50%', background: HORSE_COLORS[myHorse.personality] }} />
-                            <span style={{ fontSize: '0.75rem', fontWeight: 700 }}>{myHorse.name}</span>
-                            <span style={{ fontSize: '0.65rem', color: 'var(--color-text-dim)', textTransform: 'capitalize' }}>({myHorse.personality})</span>
-                        </div>
-                    )}
-                </div>
-                <div style={{ flex: 1, overflowY: 'auto', padding: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                    {chatLog.length === 0 && <div style={{ color: 'var(--color-text-dim)', fontSize: '0.7rem', textAlign: 'center', marginTop: '1rem' }}>Atına bir şeyler söyle!</div>}
-                    {chatLog.map((entry, i) => (
-                        <div key={i}>
-                            {entry.message && (
-                                <div style={{ fontSize: '0.72rem', marginBottom: '0.15rem' }}>
-                                    <span style={{ color: 'var(--color-cyan-light)', fontWeight: 600 }}>Sen: </span>
-                                    <span style={{ color: 'var(--color-text-muted)' }}>{entry.message}</span>
-                                </div>
-                            )}
-                            {entry.reply && (
-                                <motion.div initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }}
-                                    style={{ fontSize: '0.72rem', background: 'rgba(124,58,237,0.12)', borderLeft: '2px solid var(--color-purple)', borderRadius: '0 6px 6px 0', padding: '0.25rem 0.4rem', marginBottom: '0.15rem' }}>
-                                    <span style={{ color: 'var(--color-purple-light)', fontWeight: 600 }}>{entry.horseName}: </span>
-                                    <span style={{ color: 'var(--color-text-muted)', fontStyle: 'italic' }}>{entry.reply}</span>
-                                </motion.div>
-                            )}
+                {/* Sıralama */}
+                <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                    {[...atlar].sort((a, b) => (atKonumlar?.[b.playerAddress]?.position ?? b.position ?? 0) - (atKonumlar?.[a.playerAddress]?.position ?? a.position ?? 0)).map((at, i) => (
+                        <div key={at.playerAddress} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', background: 'var(--color-surface)', border: `1px solid ${i === 0 ? 'rgba(251,191,36,0.5)' : 'var(--color-border)'}`, borderRadius: 6, padding: '0.2rem 0.5rem', fontSize: '0.65rem' }}>
+                            <span>{['🥇', '🥈', '🥉'][i] || `#${i + 1}`}</span>
+                            <span>{at.name}</span>
+                            <span style={{ color: 'var(--color-text-dim)' }}>{Math.round(atKonumlar?.[at.playerAddress]?.position ?? at.position ?? 0)}%</span>
                         </div>
                     ))}
                 </div>
-                <form onSubmit={handleSend} style={{ display: 'flex', gap: '0.4rem', padding: '0.5rem', borderTop: '1px solid var(--color-border)' }}>
-                    <input className="input" style={{ flex: 1, fontSize: '0.75rem', padding: '0.35rem 0.5rem' }}
-                        placeholder="Atına yaz..." value={chatMsg} onChange={e => setChatMsg(e.target.value)} maxLength={80} />
+            </div>
+
+            {/* At Sohbet Paneli */}
+            <div style={{ display: 'flex', flexDirection: 'column', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 12, overflow: 'hidden' }}>
+                <div style={{ padding: '0.65rem', borderBottom: '1px solid var(--color-border)' }}>
+                    <div style={{ fontSize: '0.65rem', fontFamily: 'var(--font-orbitron)', color: 'var(--color-text-muted)', marginBottom: '0.2rem' }}>💬 ATINLA KONUŞ</div>
+                    {benimAtim && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <div style={{ width: 8, height: 8, borderRadius: '50%', background: AT_RENK[benimAtim.personality] || '#7c3aed' }} />
+                            <span style={{ fontWeight: 700, fontSize: '0.75rem' }}>{benimAtim.name}</span>
+                            <span style={{ fontSize: '0.6rem', color: 'var(--color-text-dim)' }}>({KISILIK_ISIM[benimAtim.personality]})</span>
+                        </div>
+                    )}
+                </div>
+                <div style={{ flex: 1, overflowY: 'auto', padding: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                    {sohbetLog.length === 0 && <div style={{ color: 'var(--color-text-dim)', fontSize: '0.7rem', textAlign: 'center', marginTop: '0.75rem' }}>Atına bir şeyler söyle!</div>}
+                    {sohbetLog.map((e, i) => (
+                        <div key={i}>
+                            {e.mesaj && <div style={{ fontSize: '0.7rem', marginBottom: '0.1rem' }}>
+                                <span style={{ color: 'var(--color-cyan-light)', fontWeight: 600 }}>Sen: </span>
+                                <span style={{ color: 'var(--color-text-muted)' }}>{e.mesaj}</span>
+                            </div>}
+                            {e.cevap && <motion.div initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }}
+                                style={{ fontSize: '0.7rem', background: 'rgba(124,58,237,0.1)', borderLeft: '2px solid var(--color-purple)', borderRadius: '0 5px 5px 0', padding: '0.2rem 0.35rem' }}>
+                                <span style={{ color: 'var(--color-purple-light)', fontWeight: 600 }}>{e.atIsim}: </span>
+                                <span style={{ color: 'var(--color-text-muted)', fontStyle: 'italic' }}>{e.cevap}</span>
+                            </motion.div>}
+                        </div>
+                    ))}
+                </div>
+                <form onSubmit={handleSohbet} style={{ display: 'flex', gap: '0.35rem', padding: '0.5rem', borderTop: '1px solid var(--color-border)' }}>
+                    <input className="input" style={{ flex: 1, fontSize: '0.72rem', padding: '0.3rem 0.45rem' }}
+                        placeholder="Atına yaz..." value={sohbet} onChange={e => setSohbet(e.target.value)} maxLength={80} />
                     <button className="btn btn-primary btn-sm" type="submit">→</button>
                 </form>
             </div>

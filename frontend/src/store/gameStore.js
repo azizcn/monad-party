@@ -4,217 +4,188 @@ import { io } from 'socket.io-client'
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
 
 const useGameStore = create((set, get) => ({
-    // ─── Core State ───────────────────────────────────────────────────────────────
+    // ─── Bağlantı & Oda ───────────────────────────────────────────────────────
     socket: null,
-    connected: false,
-    roomId: null,
-    roomData: null,
-    players: [],
-    myAddress: null,
-    gameStatus: 'idle', // 'idle' | 'waiting' | 'in_game' | 'game_over'
-    isHost: false,
-    chatMessages: [],
-    error: null,
+    baglandi: false,
+    odaId: null,
+    odaVeri: null,
+    oyuncular: [],
+    benimAdresim: null,
+    oyunDurumu: 'bosta', // 'bosta'|'bekliyor'|'oyunda'|'bitti'
+    hostMu: false,
+    sohbetler: [],
+    hata: null,
 
-    // ─── Board Game State ─────────────────────────────────────────────────────────
-    boardState: null,      // { players, turn, currentPlayer, phase, winner, lastDice, log, tiles }
-    boardPhase: 'idle',    // 'idle'|'initial_roll'|'rolling'|'minigame'|'finished'
-    tiles: [],             // BOARD_TILES from server
-    lastDice: null,        // [d1, d2]
-    tileLog: [],           // last tile effect messages
-    boardGameOver: null,   // { winner, boardState }
-    myInitialRolled: false,
+    // ─── Harita Durumu ────────────────────────────────────────────────────────
+    boardState: null,
+    boardFaz: 'bosta',     // 'initial_roll'|'zar'|'mini_game'|'bitti'
+    karoTipleri: [],
+    kasaTileId: null,
+    sonZar: null,
+    etkinlikKaydi: [],
+    oyunBitti: null,
+    ilkZarAtildimi: false,
 
-    // ─── Horse Race State ─────────────────────────────────────────────────────────
-    horseRaceActive: false,
-    horses: [],            // [{ playerAddress, personality, name, color, position }]
-    horsePositions: {},   // { [address]: { position, emotion, finished } }
-    horseEmotions: {},    // { [address]: emotion string }
-    horseReplies: [],     // [{ playerAddress, horseName, reply, emotion }]
+    // ─── At Yarışı ────────────────────────────────────────────────────────────
+    atYarisiAktif: false,
+    atlar: [],
+    atKonumlar: {},
+    atDuygular: {},
+    atCevaplar: [],
+    miniGameOduller: null,
 
-    // ─── Socket Init ──────────────────────────────────────────────────────────────
-    initSocket: (address) => {
-        const existing = get().socket
-        if (existing?.connected) {
-            set({ myAddress: address })
-            return
-        }
+    // ─── Socket Başlat ────────────────────────────────────────────────────────
+    socketBaslat: (adres) => {
+        const mevcut = get().socket
+        if (mevcut?.connected) { set({ benimAdresim: adres }); return }
 
-        const socket = io(BACKEND_URL, {
-            transports: ['websocket', 'polling'],
-            reconnectionAttempts: 8,
-            reconnectionDelay: 2000,
-        })
+        const socket = io(BACKEND_URL, { transports: ['websocket', 'polling'], reconnectionAttempts: 8, reconnectionDelay: 2000 })
 
-        socket.on('connect', () => {
-            console.log('[Socket] Connected:', socket.id)
-            set({ connected: true, error: null })
-        })
-        socket.on('disconnect', () => set({ connected: false }))
-        socket.on('connect_error', () => set({ error: 'Cannot connect to game server.' }))
+        socket.on('connect', () => set({ baglandi: true, hata: null }))
+        socket.on('disconnect', () => set({ baglandi: false }))
+        socket.on('connect_error', () => set({ hata: 'Sunucuya bağlanılamıyor.' }))
 
-        // ── Room Events ─────────────────────────────────────────────────────────────
-        socket.on('room-created', ({ roomId, room }) => {
-            set({ roomId, roomData: room, players: room.players, gameStatus: 'waiting', isHost: true })
-        })
-        socket.on('joined-room', ({ roomId, room }) => {
-            set({ roomId, roomData: room, players: room.players, gameStatus: 'waiting', isHost: room.host === address })
-        })
-        socket.on('room-updated', (room) => {
-            set({ roomData: room, players: room.players, isHost: room.host === address })
-        })
-        socket.on('room-list', (rooms) => set({ publicRooms: rooms }))
-        socket.on('host-changed', ({ newHost }) => set({ isHost: newHost === address }))
+        // ── Oda Olayları ──────────────────────────────────────────────────────
+        socket.on('room-created', ({ roomId, room }) =>
+            set({ odaId: roomId, odaVeri: room, oyuncular: room.oyuncular || [], oyunDurumu: 'bekliyor', hostMu: true }))
+        socket.on('joined-room', ({ roomId, room }) =>
+            set({ odaId: roomId, odaVeri: room, oyuncular: room.oyuncular || [], oyunDurumu: 'bekliyor', hostMu: room.host === adres }))
+        socket.on('oda-guncellendi', (room) =>
+            set({ odaVeri: room, oyuncular: room.oyuncular || [], hostMu: room.host === adres }))
+        socket.on('room-list', (liste) => set({ acikOdalar: liste }))
+        socket.on('host-degisti', ({ yeniHost }) => set({ hostMu: yeniHost === adres }))
 
-        // ── Board Game Events ───────────────────────────────────────────────────────
-        socket.on('game-starting', ({ players, boardState, tiles, phase }) => {
+        // ── Oyun Olayları ─────────────────────────────────────────────────────
+        socket.on('oyun-basladi', ({ oyuncular, durum, faz }) => {
             set({
-                players,
-                gameStatus: 'in_game',
-                boardState,
-                boardPhase: phase || 'initial_roll',
-                tiles: tiles || [],
-                tileLog: [],
-                boardGameOver: null,
-                horseRaceActive: false,
-                horsePositions: {},
-                horseEmotions: {},
-                myInitialRolled: false,
+                oyuncular,
+                oyunDurumu: 'oyunda',
+                boardState: durum,
+                boardFaz: faz || 'initial_roll',
+                karoTipleri: durum?.karoTipleri || [],
+                kasaTileId: durum?.kasaTileId ?? null,
+                etkinlikKaydi: [],
+                oyunBitti: null,
+                atYarisiAktif: false,
+                sonZar: null,
+                ilkZarAtildimi: false,
+                miniGameOduller: null,
             })
         })
 
-        socket.on('initial-roll-result', ({ address: addr, dice, orderDetermined, boardState, message }) => {
+        socket.on('initial-roll-result', ({ adres: addr, siraBelirli, durum, mesaj }) => {
             set(state => ({
-                boardState: boardState || state.boardState,
-                boardPhase: orderDetermined ? 'rolling' : 'initial_roll',
-                lastDice: dice || state.lastDice,
-                tileLog: message ? [...(state.tileLog || []).slice(-9), message] : state.tileLog,
-                myInitialRolled: addr === state.myAddress ? true : state.myInitialRolled,
+                boardState: durum || state.boardState,
+                boardFaz: siraBelirli ? 'zar' : 'initial_roll',
+                kasaTileId: durum?.kasaTileId ?? state.kasaTileId,
+                etkinlikKaydi: mesaj ? [...(state.etkinlikKaydi || []).slice(-12), mesaj] : state.etkinlikKaydi,
+                ilkZarAtildimi: addr === state.benimAdresim ? true : state.ilkZarAtildimi,
             }))
         })
 
-        socket.on('dice-rolled', ({ address: addr, dice, total, newPosition, tileEffect, boardState, message }) => {
+        socket.on('board-guncellendi', ({ durum }) => {
+            if (durum) set({ boardState: durum, boardFaz: durum.faz, kasaTileId: durum.kasaTileId })
+        })
+
+        socket.on('zar-atildi', ({ adres: addr, zar, toplam, yeniKonum, etki, durum, mesaj }) => {
             set(state => ({
-                boardState,
-                boardPhase: boardState?.phase || state.boardPhase,
-                lastDice: Array.isArray(dice) ? dice : [dice, 0],
-                tileLog: message ? [...(state.tileLog || []).slice(-9), message] : state.tileLog,
+                boardState: durum,
+                boardFaz: durum?.faz || state.boardFaz,
+                kasaTileId: durum?.kasaTileId ?? state.kasaTileId,
+                sonZar: Array.isArray(zar) ? zar : [zar || 1, 0],
+                etkinlikKaydi: mesaj ? [...(state.etkinlikKaydi || []).slice(-12), mesaj] : state.etkinlikKaydi,
             }))
         })
 
-        socket.on('board-updated', ({ boardState }) => {
-            if (boardState) set({ boardState })
-        })
+        socket.on('oyun-bitti', ({ kazanan, durum }) =>
+            set({ oyunBitti: { kazanan, durum }, atYarisiAktif: false }))
 
-        socket.on('board-game-over', ({ winner, boardState }) => {
-            set({ boardGameOver: { winner, boardState }, horseRaceActive: false })
-        })
+        // ── At Yarışı ─────────────────────────────────────────────────────────
+        socket.on('at-yarisi-basladi', ({ atlar }) =>
+            set({ atYarisiAktif: true, atlar, atKonumlar: {}, atDuygular: {}, atCevaplar: [], miniGameOduller: null }))
 
-        // ── Horse Race Events ───────────────────────────────────────────────────────
-        socket.on('horse-race-start', ({ horses }) => {
-            set({
-                horseRaceActive: true,
-                horses,
-                horsePositions: {},
-                horseEmotions: {},
-                horseReplies: [],
+        socket.on('at-konumlar', ({ atlar }) => {
+            const konumlar = {}, duygular = {}
+            atlar.forEach(a => {
+                konumlar[a.playerAddress] = { position: a.position, finished: a.finished }
+                duygular[a.playerAddress] = a.emotion || 'neutral'
             })
+            set({ atKonumlar: konumlar, atDuygular: duygular })
         })
 
-        socket.on('horse-positions', ({ horses }) => {
-            const positions = {}
-            const emotions = {}
-            horses.forEach(h => {
-                positions[h.playerAddress] = { position: h.position, finished: h.finished }
-                emotions[h.playerAddress] = h.emotion || 'neutral'
-            })
-            set({ horsePositions: positions, horseEmotions: emotions })
+        socket.on('at-duygu', ({ playerAddress, duygu }) =>
+            set(s => ({ atDuygular: { ...s.atDuygular, [playerAddress]: duygu } })))
+
+        socket.on('at-cevap', (cevapVeri) =>
+            set(s => ({ atCevaplar: [...s.atCevaplar.slice(-15), cevapVeri] })))
+
+        socket.on('at-sohbet-gonderildi', (data) =>
+            set(s => ({ atCevaplar: [...s.atCevaplar.slice(-15), data] })))
+
+        socket.on('at-yarisi-bitti', ({ kazanan }) =>
+            setTimeout(() => set({ atYarisiAktif: false }), 3000))
+
+        socket.on('mini-game-oduller', ({ oduller, durum }) => {
+            set({ miniGameOduller: oduller, boardState: durum, boardFaz: durum?.faz })
         })
 
-        socket.on('horse-emotion-change', ({ playerAddress, emotion, modifier }) => {
-            set(state => ({ horseEmotions: { ...state.horseEmotions, [playerAddress]: emotion } }))
-        })
+        // ── Sohbet & Hata ─────────────────────────────────────────────────────
+        socket.on('sohbet-mesaji', (msg) =>
+            set(s => ({ sohbetler: [...s.sohbetler.slice(-99), msg] })))
 
-        socket.on('horse-reply', (replyData) => {
-            set(state => ({ horseReplies: [...state.horseReplies.slice(-19), replyData] }))
+        socket.on('hata', ({ mesaj }) => {
+            set({ hata: mesaj })
+            setTimeout(() => set({ hata: null }), 5000)
         })
-
-        socket.on('horse-chat-sent', (data) => {
-            set(state => ({ horseReplies: [...state.horseReplies.slice(-19), data] }))
-        })
-
-        socket.on('horse-finished', ({ address: addr, horseName }) => {
-            console.log(`[Horse] ${horseName} finished!`)
-        })
-
-        socket.on('horse-race-end', ({ winner }) => {
-            // Report winner to server
-            get().socket?.emit('horse-race-winner', { walletAddress: winner })
-            setTimeout(() => set({ horseRaceActive: false }), 2000)
-        })
-
-        // ── Chat ────────────────────────────────────────────────────────────────────
-        socket.on('chat-message', (msg) => {
-            set(state => ({ chatMessages: [...state.chatMessages.slice(-99), msg] }))
-        })
-
+        // Backend'den gelen eski 'error' event de yakala
         socket.on('error', ({ message }) => {
-            set({ error: message })
-            setTimeout(() => set({ error: null }), 5000)
+            set({ hata: message })
+            setTimeout(() => set({ hata: null }), 5000)
         })
 
-        set({ socket, myAddress: address })
+        set({ socket, benimAdresim: adres })
     },
 
-    // ─── Actions ─────────────────────────────────────────────────────────────────
-    createRoom: (walletAddress, roomName, isPrivate, txHash) => {
-        get().socket?.emit('create-room', { walletAddress, roomName, isPrivate, txHash })
+    // ─── Eylemler ─────────────────────────────────────────────────────────────
+    odaOlustur: (adres, odaAdi, gizli) =>
+        get().socket?.emit('create-room', { walletAddress: adres, roomName: odaAdi, isPrivate: gizli }),
+    odayaKatil: (odaId, adres) =>
+        get().socket?.emit('join-room', { roomId: odaId, walletAddress: adres }),
+    hizliEslesmek: (adres) =>
+        get().socket?.emit('quick-match', { walletAddress: adres }),
+    hazirOl: (adres, hazir) =>
+        get().socket?.emit('player-ready', { walletAddress: adres, isReady: hazir }),
+    oyunuBaslat: (adres) =>
+        get().socket?.emit('start-game', { walletAddress: adres }),
+    botEkle: (adres) =>
+        get().socket?.emit('add-bot', { walletAddress: adres }),
+    ilkZarAt: (adres) => {
+        get().socket?.emit('initial-roll', { walletAddress: adres })
+        set({ ilkZarAtildimi: true })
     },
-    joinRoom: (roomId, walletAddress, txHash) => {
-        get().socket?.emit('join-room', { roomId, walletAddress, txHash })
-    },
-    quickMatch: (walletAddress, txHash) => {
-        get().socket?.emit('quick-match', { walletAddress, txHash })
-    },
-    setReady: (walletAddress, isReady) => {
-        get().socket?.emit('player-ready', { walletAddress, isReady })
-    },
-    startGame: (walletAddress) => {
-        get().socket?.emit('start-game', { walletAddress })
-    },
-    addBot: (walletAddress, difficulty = 'easy') => {
-        get().socket?.emit('add-bot', { walletAddress, difficulty })
-    },
-    initialRoll: (walletAddress) => {
-        get().socket?.emit('initial-roll', { walletAddress })
-        set({ myInitialRolled: true })
-    },
-    rollDice: (walletAddress) => {
-        get().socket?.emit('roll-dice', { walletAddress })
-    },
-    sendChat: (walletAddress, message) => {
-        get().socket?.emit('chat-message', { walletAddress, message })
-    },
-    sendHorseChat: (walletAddress, message) => {
-        get().socket?.emit('horse-chat', { walletAddress, message })
-    },
-    encourageHorse: (walletAddress) => {
-        get().socket?.emit('horse-encourage', { walletAddress })
-    },
-    requestRoomList: () => {
-        get().socket?.emit('room-list')
-    },
-    leaveRoom: (walletAddress) => {
-        get().socket?.emit('leave-room', { walletAddress })
+    zarAt: (adres) =>
+        get().socket?.emit('roll-dice', { walletAddress: adres }),
+    sohbetGonder: (adres, mesaj) =>
+        get().socket?.emit('chat-message', { walletAddress: adres, message: mesaj }),
+    atSohbetGonder: (adres, mesaj) =>
+        get().socket?.emit('at-sohbet', { walletAddress: adres, mesaj }),
+    atTesvik: (adres) =>
+        get().socket?.emit('at-tesvik', { walletAddress: adres }),
+    atYarisiSonucGonder: (siralama) =>
+        get().socket?.emit('at-yarisi-sonuc', { siralama }),
+    odaListesi: () =>
+        get().socket?.emit('room-list'),
+    odayiTerk: (adres) => {
+        get().socket?.emit('leave-room', { walletAddress: adres })
         set({
-            roomId: null, roomData: null, players: [], gameStatus: 'idle',
-            boardState: null, boardPhase: 'idle', tiles: [], lastDice: null, tileLog: [],
-            boardGameOver: null, horseRaceActive: false, horses: [],
-            horsePositions: {}, horseEmotions: {}, horseReplies: [],
-            isHost: false, chatMessages: [], error: null, myInitialRolled: false,
+            odaId: null, odaVeri: null, oyuncular: [], oyunDurumu: 'bosta',
+            boardState: null, boardFaz: 'bosta', karoTipleri: [], kasaTileId: null,
+            sonZar: null, etkinlikKaydi: [], oyunBitti: null,
+            atYarisiAktif: false, atlar: [], atKonumlar: {}, atDuygular: {}, atCevaplar: [],
+            hostMu: false, sohbetler: [], hata: null, ilkZarAtildimi: false, miniGameOduller: null,
         })
     },
-    clearError: () => set({ error: null }),
+    hataTemizle: () => set({ hata: null }),
 }))
 
 export default useGameStore

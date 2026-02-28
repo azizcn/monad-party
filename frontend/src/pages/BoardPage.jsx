@@ -6,99 +6,88 @@ import useGameStore from '../store/gameStore'
 import Board from '../components/Board'
 import HorseRace from '../components/HorseRace'
 
-const PLAYER_COLORS = ['#7c3aed', '#06b6d4', '#fbbf24', '#ec4899', '#10b981', '#f97316', '#3b82f6', '#ef4444']
-
-const TILE_LEGEND = [
-    { type: 'chest', icon: '🎁', label: 'Chest (+1, 3=WIN)', color: '#f59e0b' },
-    { type: 'minigame', icon: '🎲', label: 'Horse Race!', color: '#06b6d4' },
-    { type: 'trap', icon: '💀', label: 'Trap (-1 chest)', color: '#ef4444' },
-    { type: 'normal', icon: '🟦', label: 'Normal', color: '#6366f1' },
-]
+const OYUNCU_RENK = ['#7c3aed', '#06b6d4', '#fbbf24', '#ec4899', '#10b981', '#f97316', '#3b82f6', '#ef4444']
 
 export default function BoardPage() {
     const { roomId } = useParams()
     const navigate = useNavigate()
     const { address } = useAccount()
-    const [myReady, setMyReady] = useState(false)
-    const [diceAnimating, setDiceAnimating] = useState(false)
-    const [chatInput, setChatInput] = useState('')
-    const [botDifficulty, setBotDifficulty] = useState('easy')
-    const chatRef = useRef(null)
+    const [hazirmiyim, setHazirmiyim] = useState(false)
+    const [zarAnimasyon, setZarAnimasyon] = useState(false)
+    const [sohbet, setSohbet] = useState('')
+    const sohbetRef = useRef(null)
 
     const {
-        players, gameStatus, boardState, boardPhase, tiles, currentPlayer,
-        isHost, chatMessages, sendChat, setReady, startGame,
-        leaveRoom, addBot, rollDice, initialRoll, horses, horseRaceActive,
-        boardGameOver, connected, roomData, lastDice, tileLog,
-        myInitialRolled,
+        oyuncular, oyunDurumu, boardState, boardFaz, karoTipleri, kasaTileId,
+        hostMu, sohbetler, sohbetGonder, hazirOl, oyunuBaslat,
+        odayiTerk, botEkle, zarAt, ilkZarAt, atlar, atYarisiAktif,
+        oyunBitti, baglandi, odaVeri, sonZar, etkinlikKaydi,
+        ilkZarAtildimi, miniGameOduller, atYarisiSonucGonder, socketBaslat, hata,
     } = useGameStore()
 
     useEffect(() => {
-        if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
-    }, [chatMessages])
+        if (address) socketBaslat(address)
+    }, [address, socketBaslat])
 
-    const isMyTurn = boardState?.currentPlayer === address && gameStatus === 'in_game' && (boardPhase === 'rolling' || boardPhase === 'initial_roll') && !horseRaceActive
-    const isInitialRollPhase = boardPhase === 'initial_roll' && !myInitialRolled
-    const readyCount = players.filter(p => p.isReady || p.isBot).length
-    const canStart = isHost && players.length >= 1 && gameStatus === 'waiting'
-    const canAddBot = isHost && players.length < (roomData?.maxPlayers || 8) && gameStatus === 'waiting'
+    useEffect(() => {
+        if (sohbetRef.current) sohbetRef.current.scrollTop = sohbetRef.current.scrollHeight
+    }, [sohbetler])
 
-    const handleRollDice = () => {
-        if (!isMyTurn || diceAnimating) return
-        setDiceAnimating(true)
-        rollDice(address)
-        setTimeout(() => setDiceAnimating(false), 1200)
+    const benimSiram = boardState?.mevcutOyuncu === address && oyunDurumu === 'oyunda' && boardFaz === 'zar' && !atYarisiAktif
+    const ilkZarFazi = boardFaz === 'initial_roll' && !ilkZarAtildimi
+
+    const handleZar = () => {
+        if (!benimSiram || zarAnimasyon) return
+        setZarAnimasyon(true); zarAt(address); setTimeout(() => setZarAnimasyon(false), 1200)
     }
-
-    const handleInitialRoll = () => {
-        if (myInitialRolled || diceAnimating) return
-        setDiceAnimating(true)
-        initialRoll(address)
-        setTimeout(() => setDiceAnimating(false), 1200)
+    const handleIlkZar = () => {
+        if (ilkZarAtildimi || zarAnimasyon) return
+        setZarAnimasyon(true); ilkZarAt(address); setTimeout(() => setZarAnimasyon(false), 1200)
     }
-
-    const handleChatSend = (e) => {
+    const handleSohbet = (e) => {
         e.preventDefault()
-        if (!chatInput.trim()) return
-        sendChat(address, chatInput.trim())
-        setChatInput('')
+        if (!sohbet.trim()) return
+        sohbetGonder(address, sohbet.trim()); setSohbet('')
     }
+    const handleCik = () => { odayiTerk(address); navigate('/') }
+    const handleAtYarisiSonuc = (siralama) => { atYarisiSonucGonder(siralama) }
 
-    const handleLeave = () => {
-        leaveRoom(address)
-        navigate('/')
-    }
+    const hazirSayisi = oyuncular.filter(p => p.hazir || p.bot).length
+    const baslayabilir = hostMu && oyuncular.length >= 1 && oyunDurumu === 'bekliyor'
+    const botEklenebilir = hostMu && oyuncular.length < (odaVeri?.maxOyuncu || 8) && oyunDurumu === 'bekliyor'
 
-    if (boardGameOver) {
+    // ─── Oyun Bitti ──────────────────────────────────────────────────────────
+    if (oyunBitti) {
         return (
-            <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'var(--color-bg)', gap: '2rem' }} className="grid-bg">
-                {/* Confetti */}
+            <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'var(--color-bg)', gap: '2rem', position: 'relative', overflow: 'hidden' }}>
                 {Array.from({ length: 60 }).map((_, i) => (
-                    <motion.div key={i} style={{ position: 'fixed', top: -20, left: `${Math.random() * 100}%`, width: 10, height: 10, background: PLAYER_COLORS[i % 8], borderRadius: i % 2 ? '50%' : 2 }}
+                    <motion.div key={i} style={{ position: 'fixed', top: -20, left: `${Math.random() * 100}%`, width: 10, height: 10, background: OYUNCU_RENK[i % 8], borderRadius: i % 2 ? '50%' : 2 }}
                         animate={{ y: '110vh', rotate: Math.random() * 720, x: Math.random() * 200 - 100 }}
                         transition={{ duration: 2 + Math.random() * 2, delay: Math.random() * 1.5 }} />
                 ))}
                 <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', bounce: 0.6 }} style={{ textAlign: 'center', zIndex: 10 }}>
-                    <div style={{ fontSize: '4rem', marginBottom: '0.5rem' }}>🏆</div>
+                    <div style={{ fontSize: '4rem' }}>🏆</div>
                     <div style={{ fontFamily: 'var(--font-pixel)', fontSize: '1.5rem', color: 'var(--color-yellow)', textShadow: '0 0 30px rgba(251,191,36,0.8)', marginBottom: '0.5rem' }}>
-                        {boardGameOver.winner === address ? 'YOU WIN!' : 'GAME OVER!'}
+                        {oyunBitti.kazanan === address ? '🎉 KAZANDIN!' : 'OYUN BİTTİ!'}
                     </div>
-                    <div style={{ fontFamily: 'var(--font-orbitron)', fontSize: '0.875rem', color: 'var(--color-text-muted)', marginBottom: '2rem' }}>
-                        Champion: {boardGameOver.winner?.slice(0, 12)}...
+                    <div style={{ marginBottom: '2rem', color: 'var(--color-text-muted)' }}>
+                        Şampiyon: <strong style={{ color: 'var(--color-yellow)' }}>{oyunBitti.kazanan?.slice(0, 12)}...</strong>
                     </div>
-                    {/* Leaderboard */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '2rem', maxWidth: 400 }}>
-                        {boardGameOver.boardState?.players?.sort((a, b) => b.chests - a.chests).map((p, i) => (
-                            <div key={p.address} style={{ display: 'flex', alignItems: 'center', gap: '1rem', background: 'var(--color-surface)', border: `1px solid ${p.address === boardGameOver.winner ? 'rgba(251,191,36,0.5)' : 'var(--color-border)'}`, borderRadius: 10, padding: '0.75rem 1rem' }}>
-                                <span style={{ fontSize: '1.25rem' }}>{['🥇', '🥈', '🥉'][i] || `#${i + 1}`}</span>
-                                <span style={{ flex: 1, fontFamily: 'var(--font-orbitron)', fontSize: '0.75rem' }}>{p.name}</span>
-                                <span style={{ color: 'var(--color-yellow)', fontWeight: 700 }}>🎁 {p.chests}</span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '2rem', minWidth: 360 }}>
+                        {(oyunBitti.durum?.oyuncular || []).sort((a, b) => b.kasalar - a.kasalar).map((p, i) => (
+                            <div key={p.adres} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', background: 'var(--color-surface)', border: `1px solid ${p.adres === oyunBitti.kazanan ? 'rgba(251,191,36,0.5)' : 'var(--color-border)'}`, borderRadius: 10, padding: '0.6rem 1rem' }}>
+                                <span style={{ fontSize: '1.2rem' }}>{['🥇', '🥈', '🥉'][i] || `${i + 1}.`}</span>
+                                <span style={{ flex: 1, fontFamily: 'var(--font-orbitron)', fontSize: '0.75rem' }}>{p.isim}</span>
+                                <span style={{ color: 'var(--color-yellow)' }}>🎁{p.kasalar}</span>
+                                <span style={{ color: '#fbbf24' }}>🗝️{p.anahtar}</span>
+                                <span>❤️{p.hp}/{3}</span>
+                                {p.silah && <span title={p.silah.isim}>{p.silah.ikon}</span>}
                             </div>
                         ))}
                     </div>
                     <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
-                        <motion.button className="btn btn-primary btn-lg" onClick={() => { leaveRoom(address); navigate('/lobby') }} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>🎮 Play Again</motion.button>
-                        <motion.button className="btn btn-ghost btn-lg" onClick={handleLeave} whileHover={{ scale: 1.05 }}>🏠 Main Menu</motion.button>
+                        <motion.button className="btn btn-primary btn-lg" onClick={() => { odayiTerk(address); navigate('/lobby') }} whileHover={{ scale: 1.05 }}>🎮 Tekrar Oyna</motion.button>
+                        <motion.button className="btn btn-ghost btn-lg" onClick={handleCik} whileHover={{ scale: 1.05 }}>🏠 Ana Menü</motion.button>
                     </div>
                 </motion.div>
             </div>
@@ -106,177 +95,193 @@ export default function BoardPage() {
     }
 
     return (
-        <div style={{ minHeight: '100vh', display: 'grid', gridTemplateColumns: horseRaceActive ? '1fr' : '1fr 300px', gridTemplateRows: 'auto 1fr', background: 'var(--color-bg)' }}>
+        <div style={{ minHeight: '100vh', display: 'grid', gridTemplateColumns: atYarisiAktif ? '1fr' : 'auto 300px', gridTemplateRows: 'auto 1fr', background: 'var(--color-bg)', overflow: 'hidden' }}>
 
-            {/* ── Top Bar ── */}
-            <div style={{ gridColumn: '1/-1', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1.5rem', background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <button className="btn btn-ghost btn-sm" onClick={handleLeave}>← Leave</button>
-                    <span style={{ fontFamily: 'var(--font-pixel)', fontSize: '0.65rem', color: 'var(--color-purple-light)', letterSpacing: '0.15em' }}>MONAD PARTY</span>
+            {/* ── Üst Çubuk ── */}
+            <div style={{ gridColumn: '1/-1', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.6rem 1.2rem', background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <button className="btn btn-ghost btn-sm" onClick={handleCik}>← Çık</button>
+                    <span style={{ fontFamily: 'var(--font-pixel)', fontSize: '0.6rem', color: 'var(--color-purple-light)', letterSpacing: '0.15em' }}>🐴 MONAD PARTY</span>
                     {!import.meta.env.VITE_CONTRACT_ADDRESS && (
-                        <div style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.4)', borderRadius: 6, padding: '0.15rem 0.5rem', fontSize: '0.6rem', fontFamily: 'var(--font-orbitron)', color: 'var(--color-green)' }}>
-                            🆓 FREE
-                        </div>
+                        <div style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.4)', borderRadius: 6, padding: '0.1rem 0.4rem', fontSize: '0.55rem', color: 'var(--color-green)' }}>🆓 ÜCRETSİZ</div>
                     )}
                 </div>
 
-                {gameStatus === 'in_game' && boardState && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                        {horseRaceActive ? (
-                            <div style={{ fontFamily: 'var(--font-pixel)', fontSize: '0.7rem', color: 'var(--color-yellow)', animation: 'pulse 1s infinite' }}>🐴 HORSE RACE!</div>
+                {/* Sıra göstergesi */}
+                {oyunDurumu === 'oyunda' && boardState && !atYarisiAktif && (
+                    <div style={{ fontFamily: 'var(--font-orbitron)', fontSize: '0.75rem' }}>
+                        {boardFaz === 'initial_roll' ? (
+                            <span style={{ color: 'var(--color-green)' }}>🎲 SIRA BELIRLE</span>
                         ) : (
-                            <div style={{ fontFamily: 'var(--font-orbitron)', fontSize: '0.8rem' }}>
-                                Turn: <span style={{ color: 'var(--color-cyan-light)', fontWeight: 700 }}>
-                                    {boardState.currentPlayer === address ? 'YOUR TURN 🎲' : `${boardState.currentPlayer?.slice(0, 8)}...`}
-                                </span>
-                            </div>
+                            <span>Sıra: <strong style={{ color: boardState.mevcutOyuncu === address ? 'var(--color-yellow)' : 'var(--color-cyan-light)' }}>
+                                {boardState.mevcutOyuncu === address ? 'SENİN SIRAN 🎲' : `${boardState.mevcutOyuncu?.slice(0, 8)}...`}
+                            </strong></span>
                         )}
                     </div>
                 )}
+                {atYarisiAktif && (
+                    <div style={{ fontFamily: 'var(--font-pixel)', fontSize: '0.7rem', color: 'var(--color-yellow)', animation: 'pulse 1s infinite' }}>🐴 AT YARIŞI BAŞLADI!</div>
+                )}
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: connected ? 'var(--color-green)' : 'var(--color-red)' }} />
-                    <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-orbitron)' }}>{players.length}P</span>
+                    <div style={{ width: 7, height: 7, borderRadius: '50%', background: baglandi ? 'var(--color-green)' : 'var(--color-red)' }} />
+                    <span style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)' }}>{oyuncular.length} oyuncu</span>
                 </div>
             </div>
 
-            {/* ── Main Area ── */}
-            <div style={{ overflow: 'auto', padding: '1.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
+            {/* ── Ana Alan ── */}
+            <div style={{ overflow: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem' }}>
 
-                {/* Waiting Lobby */}
-                {gameStatus === 'waiting' && (
-                    <div style={{ textAlign: 'center', maxWidth: 520 }}>
-                        <div style={{ fontFamily: 'var(--font-pixel)', fontSize: '1rem', color: 'var(--color-purple-light)', marginBottom: '0.5rem' }}>
-                            🐴 MONAD PARTY BOARD GAME
-                        </div>
-                        <div style={{ color: 'var(--color-text-muted)', marginBottom: '1.5rem', fontSize: '0.875rem' }}>
-                            Roll dice, collect 3 chests to win! Horse races on 🎲 tiles.
+                {/* Hata mesajı */}
+                <AnimatePresence>
+                    {hata && (
+                        <motion.div initial={{ y: -20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ opacity: 0 }}
+                            style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.4)', borderRadius: 8, padding: '0.5rem 1rem', fontSize: '0.8rem', color: '#fca5a5' }}>
+                            ⚠️ {hata}
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+                {/* Lobi */}
+                {oyunDurumu === 'bekliyor' && (
+                    <div style={{ textAlign: 'center', maxWidth: 560 }}>
+                        <div style={{ fontFamily: 'var(--font-pixel)', fontSize: '0.9rem', color: 'var(--color-purple-light)', marginBottom: '0.3rem' }}>🐴 MONAD PARTY BOARD OYUNU</div>
+                        <div style={{ color: 'var(--color-text-muted)', marginBottom: '1rem', fontSize: '0.825rem' }}>
+                            Zar at, haritada ilerle! Her tur sonunda at yarışı! 🎁 3 kasa açan kazanır!
                         </div>
 
-                        {/* Legend */}
-                        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
-                            {TILE_LEGEND.map(t => (
-                                <div key={t.type} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', background: 'var(--color-surface)', border: `1px solid ${t.color}40`, borderRadius: 6, padding: '0.25rem 0.5rem', fontSize: '0.7rem' }}>
-                                    <span>{t.icon}</span>
-                                    <span style={{ color: t.color }}>{t.label}</span>
+                        {/* Açıklama kutuları */}
+                        <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'center', flexWrap: 'wrap', marginBottom: '1.2rem' }}>
+                            {[{ ikon: '🗝️', isim: 'Anahtar (+5)', renk: '#fbbf24' }, { ikon: '🎁', isim: 'Kasa (40 🗝️)', renk: '#a78bfa' }, { ikon: '💀', isim: 'Tuzak (-1 ❤️)', renk: '#f87171' }, { ikon: '❤️', isim: 'Şifa (+1 ❤️)', renk: '#86efac' }, { ikon: '🎲', isim: 'At Yarışı', renk: '#60a5fa' }].map(t => (
+                                <div key={t.ikon} style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', background: 'var(--color-surface)', border: `1px solid ${t.renk}40`, borderRadius: 6, padding: '0.2rem 0.4rem', fontSize: '0.65rem' }}>
+                                    {t.ikon} <span style={{ color: t.renk }}>{t.isim}</span>
                                 </div>
                             ))}
                         </div>
 
-                        <div style={{ fontSize: '1.5rem', marginBottom: '0.5rem', color: 'var(--color-text-muted)' }}>{readyCount}/{players.length} ready</div>
-
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'center' }}>
-                            <div style={{ display: 'flex', gap: '0.75rem' }}>
-                                <motion.button className={`btn ${myReady ? 'btn-danger' : 'btn-green'} btn-lg`}
-                                    style={{ background: myReady ? undefined : 'linear-gradient(135deg,var(--color-green),#34d399)', color: myReady ? undefined : '#000' }}
-                                    onClick={() => { const n = !myReady; setMyReady(n); setReady(address, n) }}
+                        <div style={{ fontSize: '1.2rem', color: 'var(--color-text-muted)', marginBottom: '0.75rem' }}>{hazirSayisi}/{oyuncular.length} hazır</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', gap: '0.6rem' }}>
+                                <motion.button
+                                    className={`btn btn-lg ${hazirmiyim ? 'btn-danger' : ''}`}
+                                    style={{ background: hazirmiyim ? undefined : 'linear-gradient(135deg,var(--color-green),#34d399)', color: hazirmiyim ? undefined : '#000' }}
+                                    onClick={() => { const n = !hazirmiyim; setHazirmiyim(n); hazirOl(address, n) }}
                                     whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                                    {myReady ? '❌ NOT READY' : '✅ READY'}
+                                    {hazirmiyim ? '❌ Hazır Değilim' : '✅ Hazırım'}
                                 </motion.button>
-                                {canStart && (
-                                    <motion.button className="btn btn-primary btn-lg animate-pulse-glow" onClick={() => startGame(address)} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                                        🎲 START GAME
+                                {baslayabilir && (
+                                    <motion.button className="btn btn-primary btn-lg" onClick={() => oyunuBaslat(address)} whileHover={{ scale: 1.05 }}>
+                                        🎮 OYUNU BAŞLAT
                                     </motion.button>
                                 )}
                             </div>
-                            {canAddBot && (
-                                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 10, padding: '0.5rem 0.75rem' }}>
-                                    <span style={{ fontSize: '0.75rem', fontFamily: 'var(--font-orbitron)', color: 'var(--color-text-muted)' }}>BOT:</span>
-                                    <select value={botDifficulty} onChange={e => setBotDifficulty(e.target.value)}
-                                        style={{ background: 'var(--color-bg2)', border: '1px solid var(--color-border)', borderRadius: 6, color: 'var(--color-text)', padding: '0.25rem', fontSize: '0.75rem', cursor: 'pointer' }}>
-                                        <option value="easy">Easy</option>
-                                        <option value="medium">Medium</option>
-                                        <option value="hard">Hard</option>
-                                    </select>
-                                    <button className="btn btn-primary" style={{ padding: '0.3rem 0.8rem', fontSize: '0.8rem' }} onClick={() => addBot(address, botDifficulty)}>🤖 Add Bot</button>
-                                </motion.div>
+                            {botEklenebilir && (
+                                <motion.button className="btn btn-primary" style={{ padding: '0.35rem 1rem', fontSize: '0.8rem' }} onClick={() => botEkle(address)} whileHover={{ scale: 1.05 }}>
+                                    🤖 Bot Ekle
+                                </motion.button>
                             )}
                         </div>
                     </div>
                 )}
 
-                {/* Board Game */}
-                {gameStatus === 'in_game' && !horseRaceActive && tiles?.length > 0 && (
+                {/* Harita */}
+                {oyunDurumu === 'oyunda' && !atYarisiAktif && (
                     <>
                         <Board
-                            tiles={tiles}
-                            players={players}
+                            karoTipleri={karoTipleri}
+                            kasaTileId={kasaTileId}
                             boardState={boardState}
-                            currentPlayer={boardState?.currentPlayer}
                             address={address}
-                            onRollDice={handleRollDice}
-                            onInitialRoll={handleInitialRoll}
-                            isMyTurn={isMyTurn && boardPhase === 'rolling'}
-                            isInitialRollPhase={isInitialRollPhase}
-                            lastDice={lastDice}
-                            diceAnimating={diceAnimating}
+                            onRollDice={handleZar}
+                            onInitialRoll={handleIlkZar}
+                            isMyTurn={benimSiram}
+                            isInitialRollPhase={ilkZarFazi}
+                            sonZar={sonZar}
+                            zarAnimasyon={zarAnimasyon}
                         />
 
-                        {/* Event log */}
-                        {tileLog?.length > 0 && (
-                            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-                                style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 8, padding: '0.6rem 1rem', maxWidth: 650, width: '100%', fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
-                                <span style={{ fontSize: '1.1rem' }}>
-                                    {tileLog[tileLog.length - 1]?.split('').slice(0, 2).join('')}
-                                </span>
-                                {' '}{tileLog[tileLog.length - 1]}
+                        {/* Son etkinlik */}
+                        {etkinlikKaydi?.length > 0 && (
+                            <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+                                style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 8, padding: '0.5rem 0.9rem', maxWidth: 700, width: '100%', fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
+                                {etkinlikKaydi[etkinlikKaydi.length - 1]}
                             </motion.div>
                         )}
                     </>
                 )}
 
-                {/* Horse Race Mini-Game */}
-                {gameStatus === 'in_game' && horseRaceActive && horses?.length > 0 && (
+                {/* At Yarışı */}
+                {oyunDurumu === 'oyunda' && atYarisiAktif && atlar?.length > 0 && (
                     <div style={{ width: '100%', height: 'calc(100vh - 80px)' }}>
-                        <HorseRace horses={horses} />
+                        <HorseRace atlar={atlar} onYarisBitti={handleAtYarisiSonuc} />
                     </div>
                 )}
+
+                {/* Mini Game Ödülleri */}
+                <AnimatePresence>
+                    {miniGameOduller && !atYarisiAktif && (
+                        <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ opacity: 0 }}
+                            style={{ background: 'var(--color-surface)', border: '1px solid rgba(251,191,36,0.4)', borderRadius: 12, padding: '1rem', textAlign: 'center', maxWidth: 400, width: '100%' }}>
+                            <div style={{ fontFamily: 'var(--font-pixel)', fontSize: '0.7rem', color: 'var(--color-yellow)', marginBottom: '0.75rem' }}>🏆 MİNİ OYUN SONUÇLARI</div>
+                            {miniGameOduller.map((o, i) => (
+                                <div key={o.adres} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem 0.5rem', marginBottom: '0.3rem', background: 'var(--color-bg2)', borderRadius: 6 }}>
+                                    <span>{['🥇', '🥈', '🥉'][i] || `${i + 1}.`}</span>
+                                    <span style={{ flex: 1, fontSize: '0.75rem' }}>{o.adres?.slice(0, 10)}...</span>
+                                    <span style={{ color: '#fbbf24', fontWeight: 700 }}>+{o.anahtar || 0} 🗝️</span>
+                                </div>
+                            ))}
+                        </motion.div>
+                    )}
+                </AnimatePresence>
             </div>
 
-            {/* ── Right Panel (Chat + Scoreboard) ── */}
-            {!horseRaceActive && (
+            {/* ── Sağ Panel ── */}
+            {!atYarisiAktif && (
                 <div style={{ background: 'var(--color-surface)', borderLeft: '1px solid var(--color-border)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-
-                    {/* Players + Scores */}
-                    <div style={{ padding: '1rem', borderBottom: '1px solid var(--color-border)', overflow: 'auto', maxHeight: '45%' }}>
-                        <h3 style={{ fontFamily: 'var(--font-orbitron)', fontSize: '0.7rem', color: 'var(--color-text-muted)', letterSpacing: '0.15em', marginBottom: '0.75rem' }}>PLAYERS</h3>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                            {players.map((p, i) => {
-                                const bp = boardState?.players?.find(bp => bp.address === p.address)
-                                const isCurrentTurn = boardState?.currentPlayer === p.address && gameStatus === 'in_game'
-                                return (
-                                    <div key={p.address} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 0.75rem', background: isCurrentTurn ? 'rgba(251,191,36,0.1)' : 'var(--color-bg2)', border: `1px solid ${isCurrentTurn ? 'rgba(251,191,36,0.4)' : 'var(--color-border)'}`, borderRadius: 8 }}>
-                                        <div style={{ width: 28, height: 28, borderRadius: '50%', background: PLAYER_COLORS[i % 8], display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 700, color: '#000', flexShrink: 0 }}>
-                                            {p.isBot ? '🤖' : p.address?.slice(2, 4).toUpperCase()}
-                                        </div>
-                                        <div style={{ flex: 1, minWidth: 0 }}>
-                                            <div style={{ fontFamily: 'var(--font-orbitron)', fontSize: '0.65rem', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                {p.isBot ? p.name : `${p.address?.slice(0, 6)}...`}
-                                                {p.address === address && <span style={{ color: 'var(--color-cyan-light)', marginLeft: '0.3rem', fontSize: '0.55rem' }}>(you)</span>}
-                                                {isCurrentTurn && <span style={{ color: 'var(--color-yellow)', marginLeft: '0.3rem' }}>🎲</span>}
-                                            </div>
-                                        </div>
-                                        <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--color-yellow)' }}>🎁 {bp?.chests || 0}</div>
+                    {/* Oyuncular */}
+                    <div style={{ padding: '0.75rem', borderBottom: '1px solid var(--color-border)', overflowY: 'auto', maxHeight: '50%' }}>
+                        <h3 style={{ fontFamily: 'var(--font-orbitron)', fontSize: '0.65rem', color: 'var(--color-text-muted)', letterSpacing: '0.15em', marginBottom: '0.5rem' }}>OYUNCULAR</h3>
+                        {oyuncular.map((p, i) => {
+                            const bp = boardState?.oyuncular?.find(o => o.adres === p.adres)
+                            const sıradam = boardState?.mevcutOyuncu === p.adres && oyunDurumu === 'oyunda'
+                            return (
+                                <div key={p.adres} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.4rem 0.6rem', marginBottom: '0.25rem', background: sıradam ? 'rgba(251,191,36,0.1)' : 'var(--color-bg2)', border: `1px solid ${sıradam ? 'rgba(251,191,36,0.4)' : 'var(--color-border)'}`, borderRadius: 8 }}>
+                                    <div style={{ width: 26, height: 26, borderRadius: '50%', background: OYUNCU_RENK[i % 8], display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.6rem', fontWeight: 700, flexShrink: 0 }}>
+                                        {p.bot ? '🤖' : (p.adres?.slice(2, 4).toUpperCase() || '??')}
                                     </div>
-                                )
-                            })}
-                        </div>
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ fontFamily: 'var(--font-orbitron)', fontSize: '0.6rem', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            {p.bot ? p.isim : `${p.adres?.slice(0, 6)}...`}
+                                            {p.adres === address && <span style={{ color: 'var(--color-cyan-light)', marginLeft: '0.25rem', fontSize: '0.5rem' }}>(sen)</span>}
+                                            {sıradam && <span style={{ color: 'var(--color-yellow)', marginLeft: '0.25rem' }}>🎲</span>}
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '0.4rem', fontSize: '0.55rem', color: 'var(--color-text-dim)', marginTop: '0.1rem' }}>
+                                            <span>❤️{bp?.hp || 0}/3</span>
+                                            <span>🗝️{bp?.anahtar || 0}</span>
+                                            <span>🎁{bp?.kasalar || 0}</span>
+                                            {bp?.silah && <span title={bp.silah.isim}>{bp.silah.ikon}</span>}
+                                        </div>
+                                    </div>
+                                    {bp?.elendi && <span style={{ color: '#f87171', fontSize: '0.6rem' }}>Elendi</span>}
+                                </div>
+                            )
+                        })}
                     </div>
 
-                    {/* Chat */}
-                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: '1rem' }}>
-                        <h3 style={{ fontFamily: 'var(--font-orbitron)', fontSize: '0.7rem', color: 'var(--color-text-muted)', letterSpacing: '0.15em', marginBottom: '0.75rem' }}>CHAT</h3>
-                        <div ref={chatRef} style={{ flex: 1, overflowY: 'auto', marginBottom: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                            {chatMessages.map((msg, i) => (
-                                <div key={i} style={{ fontSize: '0.75rem' }}>
-                                    <span style={{ color: msg.address === 'SYSTEM' ? 'var(--color-cyan-light)' : 'var(--color-purple-light)', fontWeight: 600 }}>
-                                        {msg.address === 'SYSTEM' ? '🔔' : msg.address?.slice(0, 6)}: </span>
-                                    <span style={{ color: 'var(--color-text-muted)' }}>{msg.message}</span>
+                    {/* Sohbet */}
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: '0.75rem' }}>
+                        <h3 style={{ fontFamily: 'var(--font-orbitron)', fontSize: '0.65rem', color: 'var(--color-text-muted)', letterSpacing: '0.15em', marginBottom: '0.5rem' }}>SOHBET</h3>
+                        <div ref={sohbetRef} style={{ flex: 1, overflowY: 'auto', marginBottom: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                            {sohbetler.map((m, i) => (
+                                <div key={i} style={{ fontSize: '0.7rem' }}>
+                                    <span style={{ color: m.adres === 'SISTEM' ? 'var(--color-cyan-light)' : 'var(--color-purple-light)', fontWeight: 600 }}>
+                                        {m.adres === 'SISTEM' ? '🔔' : m.adres?.slice(0, 6)}: </span>
+                                    <span style={{ color: 'var(--color-text-muted)' }}>{m.mesaj}</span>
                                 </div>
                             ))}
                         </div>
-                        <form onSubmit={handleChatSend} style={{ display: 'flex', gap: '0.5rem' }}>
-                            <input className="input" style={{ flex: 1, fontSize: '0.75rem', padding: '0.4rem 0.6rem' }} placeholder="Chat..." value={chatInput} onChange={e => setChatInput(e.target.value)} maxLength={200} />
+                        <form onSubmit={handleSohbet} style={{ display: 'flex', gap: '0.4rem' }}>
+                            <input className="input" style={{ flex: 1, fontSize: '0.7rem', padding: '0.35rem 0.5rem' }} placeholder="Mesaj yaz..." value={sohbet} onChange={e => setSohbet(e.target.value)} maxLength={200} />
                             <button className="btn btn-primary btn-sm" type="submit">→</button>
                         </form>
                     </div>
