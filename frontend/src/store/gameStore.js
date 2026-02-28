@@ -186,6 +186,62 @@ const useGameStore = create((set, get) => ({
         })
     },
     hataTemizle: () => set({ hata: null }),
+
+    // ─── İngilizce Uyumluluk Fonksiyon Alias'ları ─────────────────────────────
+    initSocket: (adres) => get().socketBaslat(adres),
+    createRoom: (adres, isim, gizli) => get().odaOlustur(adres, isim, gizli),
+    joinRoom: (odaId, adres) => get().odayaKatil(odaId, adres),
+    quickMatch: (adres) => get().hizliEslesmek(adres),
+    requestRoomList: () => get().odaListesi(),
+    setReady: (adres, hazir) => get().hazirOl(adres, hazir),
+    startGame: (adres) => get().oyunuBaslat(adres),
+    addBot: (adres) => get().botEkle(adres),
+    rollDice: (adres) => get().zarAt(adres),
+    initialRoll: (adres) => get().ilkZarAt(adres),
+    sendChat: (adres, mesaj) => get().sohbetGonder(adres, mesaj),
+    sendHorseChat: (adres, mesaj) => get().atSohbetGonder(adres, mesaj),
+    encourageHorse: (adres) => get().atTesvik(adres),
+    leaveRoom: (adres) => get().odayiTerk(adres),
+    clearError: () => set({ hata: null }),
 }))
+
+// ─── State Field Alias Selectors ──────────────────────────────────────────────
+// These allow old English field names to work with useGameStore()
+let _syncing = false
+useGameStore.subscribe((state) => {
+    if (_syncing) return
+    // Keep English aliases in sync as computed values
+    const patch = {
+        connected: state.baglandi,
+        error: state.hata,
+        roomId: state.odaId,
+        players: state.oyuncular,
+        gameStatus: state.oyunDurumu,
+        chatMessages: state.sohbetler,
+        isHost: state.hostMu,
+        roomData: state.odaVeri,
+        horseRaceActive: state.atYarisiAktif,
+        horses: state.atlar,
+        horsePositions: state.atKonumlar,
+        horseEmotions: state.atDuygular,
+        horseReplies: state.atCevaplar,
+        boardGameOver: state.oyunBitti,
+        lastDice: state.sonZar,
+        tileLog: state.etkinlikKaydi,
+        tiles: state.karoTipleri,
+        myInitialRolled: state.ilkZarAtildimi,
+        boardPhase: state.boardFaz,
+        currentPlayer: state.boardState?.mevcutOyuncu,
+        acikOdalar: state.acikOdalar || [],
+    }
+    // Only update if values changed to avoid infinite loop
+    const current = useGameStore.getState()
+    const needsUpdate = Object.keys(patch).some(k => current[k] !== patch[k])
+    if (needsUpdate) {
+        _syncing = true
+        useGameStore.setState(patch) // merge (no second arg = false = merge)
+        _syncing = false
+    }
+})
 
 export default useGameStore
