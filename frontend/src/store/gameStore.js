@@ -4,7 +4,7 @@ import { io } from 'socket.io-client'
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
 
 const useGameStore = create((set, get) => ({
-    // ─── State ─────────────────────────────────────────────────────────────────
+    // ─── Core State ───────────────────────────────────────────────────────────────
     socket: null,
     connected: false,
     roomId: null,
@@ -12,18 +12,25 @@ const useGameStore = create((set, get) => ({
     players: [],
     myAddress: null,
     gameStatus: 'idle', // 'idle' | 'waiting' | 'in_game' | 'game_over'
-    currentMiniGame: null,
-    scores: {},
-    round: 0,
-    totalRounds: 3,
-    roundWinners: [],
-    gameOverData: null,
-    announcement: null,
-    chatMessages: [],
     isHost: false,
+    chatMessages: [],
     error: null,
 
-    // ─── Socket Init ───────────────────────────────────────────────────────────
+    // ─── Board Game State ─────────────────────────────────────────────────────────
+    boardState: null,      // { players, turn, currentPlayer, phase, winner, lastDice, log, tiles }
+    tiles: [],             // BOARD_TILES from server
+    lastDice: null,
+    tileLog: [],           // last tile effect messages
+    boardGameOver: null,   // { winner, boardState }
+
+    // ─── Horse Race State ─────────────────────────────────────────────────────────
+    horseRaceActive: false,
+    horses: [],            // [{ playerAddress, personality, name, color, position }]
+    horsePositions: {},   // { [address]: { position, emotion, finished } }
+    horseEmotions: {},    // { [address]: emotion string }
+    horseReplies: [],     // [{ playerAddress, horseName, reply, emotion }]
+
+    // ─── Socket Init ──────────────────────────────────────────────────────────────
     initSocket: (address) => {
         const existing = get().socket
         if (existing?.connected) {
@@ -33,7 +40,7 @@ const useGameStore = create((set, get) => ({
 
         const socket = io(BACKEND_URL, {
             transports: ['websocket', 'polling'],
-            reconnectionAttempts: 5,
+            reconnectionAttempts: 8,
             reconnectionDelay: 2000,
         })
 
@@ -41,109 +48,99 @@ const useGameStore = create((set, get) => ({
             console.log('[Socket] Connected:', socket.id)
             set({ connected: true, error: null })
         })
+        socket.on('disconnect', () => set({ connected: false }))
+        socket.on('connect_error', () => set({ error: 'Cannot connect to game server.' }))
 
-        socket.on('disconnect', () => {
-            console.log('[Socket] Disconnected')
-            set({ connected: false })
-        })
-
-        socket.on('connect_error', (err) => {
-            console.error('[Socket] Error:', err.message)
-            set({ error: 'Cannot connect to game server. Is it running?' })
-        })
-
-        // ── Room Events ──────────────────────────────────────────────────────────
+        // ── Room Events ─────────────────────────────────────────────────────────────
         socket.on('room-created', ({ roomId, room }) => {
             set({ roomId, roomData: room, players: room.players, gameStatus: 'waiting', isHost: true })
         })
-
         socket.on('joined-room', ({ roomId, room }) => {
-            set({
-                roomId,
-                roomData: room,
-                players: room.players,
-                gameStatus: 'waiting',
-                isHost: room.host === address,
-            })
+            set({ roomId, roomData: room, players: room.players, gameStatus: 'waiting', isHost: room.host === address })
         })
-
         socket.on('room-updated', (room) => {
+            set({ roomData: room, players: room.players, isHost: room.host === address })
+        })
+        socket.on('room-list', (rooms) => set({ publicRooms: rooms }))
+        socket.on('host-changed', ({ newHost }) => set({ isHost: newHost === address }))
+
+        // ── Board Game Events ───────────────────────────────────────────────────────
+        socket.on('game-starting', ({ players, boardState, tiles }) => {
             set({
-                roomData: room,
-                players: room.players,
-                isHost: room.host === address,
-            })
-        })
-
-        socket.on('room-list', (rooms) => {
-            set({ publicRooms: rooms })
-        })
-
-        // ── Game Events ──────────────────────────────────────────────────────────
-        socket.on('all-ready', ({ countdown }) => {
-            set({ allReadyCountdown: countdown })
-        })
-
-        socket.on('game-starting', ({ players }) => {
-            set({ players, gameStatus: 'in_game' })
-        })
-
-        socket.on('mini-game-start', ({ round, totalRounds, game, scores, announcement }) => {
-            set({
-                round,
-                totalRounds,
-                currentMiniGame: game,
-                scores,
-                announcement,
+                players,
                 gameStatus: 'in_game',
+                boardState,
+                tiles: tiles || [],
+                tileLog: [],
+                boardGameOver: null,
+                horseRaceActive: false,
+                horsePositions: {},
+                horseEmotions: {},
             })
         })
 
-        socket.on('mini-game-end', ({ winner, placements, scores, roundWinners, nextRound }) => {
-            set({ scores, roundWinners, currentMiniGame: null })
+        socket.on('dice-rolled', ({ address: addr, dice, newPosition, tileEffect, boardState, message }) => {
+            set(state => ({
+                boardState,
+                lastDice: dice,
+                tileLog: [...(state.tileLog || []).slice(-9), message],
+            }))
         })
 
-        socket.on('game-over', ({ champion, leaderboard, roundWinners }) => {
+        socket.on('board-updated', ({ boardState }) => {
+            if (boardState) set({ boardState })
+        })
+
+        socket.on('board-game-over', ({ winner, boardState }) => {
+            set({ boardGameOver: { winner, boardState }, horseRaceActive: false })
+        })
+
+        // ── Horse Race Events ───────────────────────────────────────────────────────
+        socket.on('horse-race-start', ({ horses }) => {
             set({
-                gameOverData: { champion, leaderboard, roundWinners },
-                gameStatus: 'game_over',
-                currentMiniGame: null,
+                horseRaceActive: true,
+                horses,
+                horsePositions: {},
+                horseEmotions: {},
+                horseReplies: [],
             })
         })
 
-        // ── Multiplayer Position Events (handled in GameCanvas) ──────────────────
-        socket.on('player-moved', (data) => {
-            set((state) => ({ playerPositions: { ...state.playerPositions, [data.address]: data } }))
+        socket.on('horse-positions', ({ horses }) => {
+            const positions = {}
+            const emotions = {}
+            horses.forEach(h => {
+                positions[h.playerAddress] = { position: h.position, finished: h.finished }
+                emotions[h.playerAddress] = h.emotion || 'neutral'
+            })
+            set({ horsePositions: positions, horseEmotions: emotions })
         })
 
-        socket.on('action-result', ({ address, action, result }) => {
-            if (action?.type === 'eliminated') {
-                set((state) => ({
-                    eliminatedPlayers: new Set([...(state.eliminatedPlayers || []), address]),
-                }))
-            }
-            if (result?.scores) {
-                set({ scores: result.scores })
-            }
+        socket.on('horse-emotion-change', ({ playerAddress, emotion, modifier }) => {
+            set(state => ({ horseEmotions: { ...state.horseEmotions, [playerAddress]: emotion } }))
         })
 
-        // ── Chat ──────────────────────────────────────────────────────────────────
+        socket.on('horse-reply', (replyData) => {
+            set(state => ({ horseReplies: [...state.horseReplies.slice(-19), replyData] }))
+        })
+
+        socket.on('horse-chat-sent', (data) => {
+            set(state => ({ horseReplies: [...state.horseReplies.slice(-19), data] }))
+        })
+
+        socket.on('horse-finished', ({ address: addr, horseName }) => {
+            console.log(`[Horse] ${horseName} finished!`)
+        })
+
+        socket.on('horse-race-end', ({ winner }) => {
+            // Report winner to server
+            get().socket?.emit('horse-race-winner', { walletAddress: winner })
+            setTimeout(() => set({ horseRaceActive: false }), 2000)
+        })
+
+        // ── Chat ────────────────────────────────────────────────────────────────────
         socket.on('chat-message', (msg) => {
-            set((state) => ({
-                chatMessages: [...state.chatMessages.slice(-99), msg],
-            }))
-        })
-
-        socket.on('host-changed', ({ newHost }) => {
-            set({ isHost: newHost === address })
-        })
-
-        socket.on('player-disconnected', ({ address: addr }) => {
-            set((state) => ({
-                players: state.players.map((p) =>
-                    p.address === addr ? { ...p, disconnected: true } : p
-                ),
-            }))
+            set(state => ({ chatMessages: [...state.chatMessages.slice(-99), msg] }))
         })
 
         socket.on('error', ({ message }) => {
@@ -151,82 +148,54 @@ const useGameStore = create((set, get) => ({
             setTimeout(() => set({ error: null }), 5000)
         })
 
-        set({ socket, myAddress: address, playerPositions: {}, eliminatedPlayers: new Set() })
+        set({ socket, myAddress: address })
     },
 
-    // ─── Actions ───────────────────────────────────────────────────────────────
+    // ─── Actions ─────────────────────────────────────────────────────────────────
     createRoom: (walletAddress, roomName, isPrivate, txHash) => {
         get().socket?.emit('create-room', { walletAddress, roomName, isPrivate, txHash })
     },
-
     joinRoom: (roomId, walletAddress, txHash) => {
         get().socket?.emit('join-room', { roomId, walletAddress, txHash })
     },
-
     quickMatch: (walletAddress, txHash) => {
         get().socket?.emit('quick-match', { walletAddress, txHash })
     },
-
     setReady: (walletAddress, isReady) => {
         get().socket?.emit('player-ready', { walletAddress, isReady })
     },
-
     startGame: (walletAddress) => {
         get().socket?.emit('start-game', { walletAddress })
     },
-
-    sendMove: (address, x, y, vx, vy, animation) => {
-        const { socket, roomId } = get()
-        socket?.emit('player-move', { address, x, y, vx, vy, animation, roomId })
-    },
-
-    sendAction: (address, action) => {
-        get().socket?.emit('player-action', { address, action })
-    },
-
-    sendEliminated: (address) => {
-        get().socket?.emit('player-eliminated', { address })
-    },
-
-    sendChat: (walletAddress, message) => {
-        get().socket?.emit('chat-message', { walletAddress, message })
-    },
-
-    requestRoomList: () => {
-        get().socket?.emit('room-list')
-    },
-
     addBot: (walletAddress, difficulty = 'easy') => {
         get().socket?.emit('add-bot', { walletAddress, difficulty })
     },
-
+    rollDice: (walletAddress) => {
+        get().socket?.emit('roll-dice', { walletAddress })
+    },
+    sendChat: (walletAddress, message) => {
+        get().socket?.emit('chat-message', { walletAddress, message })
+    },
+    sendHorseChat: (walletAddress, message) => {
+        get().socket?.emit('horse-chat', { walletAddress, message })
+    },
+    encourageHorse: (walletAddress) => {
+        get().socket?.emit('horse-encourage', { walletAddress })
+    },
+    requestRoomList: () => {
+        get().socket?.emit('room-list')
+    },
     leaveRoom: (walletAddress) => {
         get().socket?.emit('leave-room', { walletAddress })
         set({
-            roomId: null,
-            roomData: null,
-            players: [],
-            gameStatus: 'idle',
-            currentMiniGame: null,
-            scores: {},
-            round: 0,
-            gameOverData: null,
-            isHost: false,
-            chatMessages: [],
-            playerPositions: {},
-            eliminatedPlayers: new Set(),
+            roomId: null, roomData: null, players: [], gameStatus: 'idle',
+            boardState: null, tiles: [], lastDice: null, tileLog: [],
+            boardGameOver: null, horseRaceActive: false, horses: [],
+            horsePositions: {}, horseEmotions: {}, horseReplies: [],
+            isHost: false, chatMessages: [], error: null,
         })
     },
-
     clearError: () => set({ error: null }),
-    resetGame: () => set({
-        gameStatus: 'idle',
-        gameOverData: null,
-        currentMiniGame: null,
-        scores: {},
-        round: 0,
-        roundWinners: [],
-    }),
 }))
 
 export default useGameStore

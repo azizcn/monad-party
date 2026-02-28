@@ -1,412 +1,537 @@
 /**
- * socketHandlers.js
- * All Socket.io event handlers with rate limiting, validation, and cheat prevention.
+ * socketHandlers.js - v2 (Board Game Edition)
+ * Handles room management + board game + horse race + real bot players.
  */
 
-const { v4: uuidv4 } = require("uuid");
+const { v4: uuidv4 } = require('uuid')
 const {
-    initGameState,
-    startNextMiniGame,
-    handlePlayerAction,
-    endMiniGame,
-    getGameState,
-    cleanupGameState,
-} = require("./gameEngine");
-const { createBotPlayer } = require("./aiAgent");
+    createBoardState, getBoardState, cleanupBoardState,
+    rollDice, afterMinigame, getSafeBoardState, BOARD_TILES,
+} = require('./boardEngine')
+const {
+    assignHorses, calculateSpeedModifier, generateHorseReply,
+} = require('./horseAgent')
 
 // ─── Rate Limiting ─────────────────────────────────────────────────────────────
-const moveRateLimits = new Map(); // socketId → { count, window }
-const MOVE_RATE_LIMIT = 60; // max move events per second
-
-function checkMoveRateLimit(socketId) {
-    const now = Date.now();
-    const entry = moveRateLimits.get(socketId);
-    if (!entry || now - entry.window > 1000) {
-        moveRateLimits.set(socketId, { count: 1, window: now });
-        return true;
-    }
-    if (entry.count >= MOVE_RATE_LIMIT) return false;
-    entry.count++;
-    return true;
+const moveRateLimits = new Map()
+function checkRateLimit(socketId, limitMs = 200) {
+    const now = Date.now()
+    const last = moveRateLimits.get(socketId) || 0
+    if (now - last < limitMs) return false
+    moveRateLimits.set(socketId, now)
+    return true
 }
 
-// ─── Position Validation ───────────────────────────────────────────────────────
-const MAX_SPEED = 600; // pixels per second
-const lastPositions = new Map(); // socketId → { x, y, t }
+// ─── Horse Race State ──────────────────────────────────────────────────────────
+// roomId → { horses: [], startTime, finished, interval }
+const horseRaces = new Map()
 
-function validatePosition(socketId, x, y) {
-    const last = lastPositions.get(socketId);
-    const now = Date.now();
-    if (last) {
-        const dt = (now - last.t) / 1000;
-        const dist = Math.sqrt((x - last.x) ** 2 + (y - last.y) ** 2);
-        if (dist / dt > MAX_SPEED * 1.5) {
-            return false; // teleporting/cheating
-        }
+function startHorseRace(io, roomId, players) {
+    const horses = assignHorses(players)
+    const RACE_DURATION = 30000 // 30 seconds max
+
+    const raceState = {
+        horses,
+        startTime: Date.now(),
+        finished: false,
+        winner: null,
+        interval: null,
     }
-    lastPositions.set(socketId, { x, y, t: now });
-    return true;
+    horseRaces.set(roomId, raceState)
+
+    io.to(roomId).emit('horse-race-start', { horses })
+
+    // Simulate base horse movement (server-side authoritative positions)
+    raceState.interval = setInterval(() => {
+        const race = horseRaces.get(roomId)
+        if (!race || race.finished) return
+
+        race.horses.forEach(horse => {
+            if (horse.finished) return
+            // Base speed + personality variance
+            let baseSpeed = 1.2 + Math.random() * 0.6
+            baseSpeed *= horse.speedModifier || 1.0
+
+            // Stubborn horses sometimes randomly do opposite
+            if (horse.personality === 'stubborn' && Math.random() < 0.2) {
+                baseSpeed = -baseSpeed * 0.3
+            }
+            // Lazy horses randomly slow
+            if (horse.personality === 'lazy' && Math.random() < 0.15) {
+                baseSpeed *= 0.1
+            }
+
+            horse.position = Math.min(100, Math.max(0, horse.position + baseSpeed))
+
+            if (horse.position >= 100 && !horse.finished) {
+                horse.finished = true
+                if (!race.winner) {
+                    race.winner = horse.playerAddress
+                    io.to(roomId).emit('horse-finished', { address: horse.playerAddress, horseName: horse.name })
+                }
+            }
+        })
+
+        io.to(roomId).emit('horse-positions', {
+            horses: race.horses.map(h => ({
+                playerAddress: h.playerAddress,
+                position: h.position,
+                emotion: h.emotion,
+                finished: h.finished,
+            }))
+        })
+
+        // End race if winner or timeout
+        const allFinished = race.horses.every(h => h.finished)
+        const timedOut = Date.now() - race.startTime > RACE_DURATION
+        if (allFinished || timedOut) {
+            clearInterval(race.interval)
+            race.finished = true
+            const winner = race.winner || race.horses.sort((a, b) => b.position - a.position)[0]?.playerAddress
+            io.to(roomId).emit('horse-race-end', { winner })
+        }
+    }, 100) // 10fps server tick
+
+    return horses
+}
+
+function stopHorseRace(roomId) {
+    const race = horseRaces.get(roomId)
+    if (race?.interval) clearInterval(race.interval)
+    horseRaces.delete(roomId)
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
-
 function getRoomSummary(room) {
     return {
         roomId: room.roomId,
         roomName: room.roomName,
         host: room.host,
-        players: room.players.map((p) => ({
+        players: room.players.map(p => ({
             address: p.address,
+            name: p.name,
             isReady: p.isReady,
-            score: p.score,
             isBot: p.isBot || false,
         })),
         status: room.status,
         maxPlayers: room.maxPlayers,
         isPrivate: room.isPrivate,
-    };
+    }
 }
 
 function broadcastRoomUpdate(io, room) {
-    io.to(room.roomId).emit("room-updated", getRoomSummary(room));
+    io.to(room.roomId).emit('room-updated', getRoomSummary(room))
 }
 
-function findOrCreateWaitingRoom(rooms, walletAddress) {
-    for (const [, room] of rooms) {
-        if (!room.isPrivate && room.status === "waiting" && room.players.length < room.maxPlayers) {
-            return room;
-        }
-    }
-    // Create a new room
-    const roomId = uuidv4();
-    const newRoom = {
-        roomId,
-        roomName: `Quick Match #${roomId.slice(0, 4).toUpperCase()}`,
-        host: walletAddress,
-        players: [],
-        status: "waiting",
-        gameState: null,
-        maxPlayers: 8,
-        isPrivate: false,
-        createdAt: Date.now(),
-        txHash: null,
-        chatMessages: [],
-    };
-    rooms.set(roomId, newRoom);
-    return newRoom;
-}
-
-// ─── Main Handler Setup ────────────────────────────────────────────────────────
-
+// ─── Main Handler ──────────────────────────────────────────────────────────────
 function setupSocketHandlers(io, rooms) {
-    io.on("connection", (socket) => {
-        console.log(`[Socket] Connected: ${socket.id}`);
-        let currentRoomId = null;
+    io.on('connection', (socket) => {
+        console.log(`[Socket] Connected: ${socket.id}`)
+        let currentRoomId = null
 
-        // ── Create Room ─────────────────────────────────────────────────────────
-        socket.on("create-room", ({ walletAddress, roomName, isPrivate, maxPlayers = 8, txHash }) => {
-            if (!walletAddress) return socket.emit("error", { message: "Wallet address required" });
+        // ── Create Room ───────────────────────────────────────────────────────
+        socket.on('create-room', ({ walletAddress, roomName, isPrivate, maxPlayers = 8, txHash }) => {
+            if (!walletAddress) return socket.emit('error', { message: 'Wallet address required' })
 
-            const roomId = uuidv4();
+            const roomId = uuidv4()
             const room = {
                 roomId,
                 roomName: roomName || `${walletAddress.slice(0, 6)}'s Room`,
                 host: walletAddress,
                 players: [{
                     address: walletAddress,
+                    name: walletAddress.slice(0, 8),
                     socketId: socket.id,
                     isReady: false,
-                    score: 0,
-                    isEliminated: false,
                     isBot: false,
                 }],
-                status: "waiting",
-                gameState: null,
+                status: 'waiting',
                 maxPlayers: Math.min(Math.max(maxPlayers, 2), 8),
                 isPrivate: !!isPrivate,
                 createdAt: Date.now(),
                 txHash: txHash || null,
                 chatMessages: [],
-            };
+            }
 
-            rooms.set(roomId, room);
-            socket.join(roomId);
-            currentRoomId = roomId;
+            rooms.set(roomId, room)
+            socket.join(roomId)
+            currentRoomId = roomId
+            socket.emit('room-created', { roomId, room: getRoomSummary(room) })
+            broadcastRoomUpdate(io, room)
+            console.log(`[Room] Created: ${roomId} by ${walletAddress}`)
+        })
 
-            socket.emit("room-created", { roomId, room: getRoomSummary(room) });
-            broadcastRoomUpdate(io, room);
-            console.log(`[Room] Created: ${roomId} by ${walletAddress}`);
-        });
+        // ── Join Room ─────────────────────────────────────────────────────────
+        socket.on('join-room', ({ roomId, walletAddress, txHash }) => {
+            const room = rooms.get(roomId)
+            if (!room) return socket.emit('error', { message: 'Room not found' })
+            if (room.status !== 'waiting') return socket.emit('error', { message: 'Game already started' })
+            if (room.players.length >= room.maxPlayers) return socket.emit('error', { message: 'Room is full' })
 
-        // ── Join Room ───────────────────────────────────────────────────────────
-        socket.on("join-room", ({ roomId, walletAddress, txHash }) => {
-            const room = rooms.get(roomId);
-            if (!room) return socket.emit("error", { message: "Room not found" });
-            if (room.status !== "waiting") return socket.emit("error", { message: "Game already started" });
-            if (room.players.length >= room.maxPlayers) return socket.emit("error", { message: "Room is full" });
-            if (room.players.find((p) => p.address === walletAddress)) {
-                // Reconnect: update socketId
-                const player = room.players.find((p) => p.address === walletAddress);
-                player.socketId = socket.id;
-                socket.join(roomId);
-                currentRoomId = roomId;
-                return socket.emit("joined-room", { roomId, room: getRoomSummary(room) });
+            const existingPlayer = room.players.find(p => p.address === walletAddress)
+            if (existingPlayer) {
+                existingPlayer.socketId = socket.id
+                socket.join(roomId)
+                currentRoomId = roomId
+                return socket.emit('joined-room', { roomId, room: getRoomSummary(room) })
             }
 
             room.players.push({
                 address: walletAddress,
+                name: walletAddress.slice(0, 8),
                 socketId: socket.id,
                 isReady: false,
-                score: 0,
-                isEliminated: false,
                 isBot: false,
                 txHash: txHash || null,
-            });
+            })
 
-            socket.join(roomId);
-            currentRoomId = roomId;
-            socket.emit("joined-room", { roomId, room: getRoomSummary(room) });
-            broadcastRoomUpdate(io, room);
-            console.log(`[Room] ${walletAddress} joined ${roomId}`);
-        });
+            socket.join(roomId)
+            currentRoomId = roomId
+            socket.emit('joined-room', { roomId, room: getRoomSummary(room) })
+            broadcastRoomUpdate(io, room)
+        })
 
-        // ── Quick Match ─────────────────────────────────────────────────────────
-        socket.on("quick-match", ({ walletAddress, txHash }) => {
-            if (!walletAddress) return socket.emit("error", { message: "Wallet address required" });
-
-            const room = findOrCreateWaitingRoom(rooms, walletAddress);
-
-            if (!room.players.find((p) => p.address === walletAddress)) {
-                room.players.push({
-                    address: walletAddress,
-                    socketId: socket.id,
-                    isReady: false,
-                    score: 0,
-                    isEliminated: false,
-                    isBot: false,
-                    txHash: txHash || null,
-                });
+        // ── Quick Match ───────────────────────────────────────────────────────
+        socket.on('quick-match', ({ walletAddress, txHash }) => {
+            if (!walletAddress) return socket.emit('error', { message: 'Wallet address required' })
+            let room = null
+            for (const [, r] of rooms) {
+                if (!r.isPrivate && r.status === 'waiting' && r.players.length < r.maxPlayers) { room = r; break }
             }
-
-            socket.join(room.roomId);
-            currentRoomId = room.roomId;
-            socket.emit("joined-room", { roomId: room.roomId, room: getRoomSummary(room) });
-            broadcastRoomUpdate(io, room);
-        });
-
-        // ── Player Ready ────────────────────────────────────────────────────────
-        socket.on("player-ready", ({ walletAddress, isReady }) => {
-            if (!currentRoomId) return;
-            const room = rooms.get(currentRoomId);
-            if (!room) return;
-
-            const player = room.players.find((p) => p.address === walletAddress);
-            if (player) {
-                player.isReady = isReady;
-                broadcastRoomUpdate(io, room);
-
-                // Auto-countdown if all ready
-                const allReady = room.players.every((p) => p.isReady) && room.players.length >= 2;
-                if (allReady) {
-                    io.to(currentRoomId).emit("all-ready", { countdown: 10 });
+            if (!room) {
+                const roomId = uuidv4()
+                room = {
+                    roomId, host: walletAddress,
+                    roomName: `Quick Match #${roomId.slice(0, 4).toUpperCase()}`,
+                    players: [], status: 'waiting', maxPlayers: 8,
+                    isPrivate: false, createdAt: Date.now(), txHash: null, chatMessages: [],
                 }
+                rooms.set(roomId, room)
             }
-        });
+            if (!room.players.find(p => p.address === walletAddress)) {
+                room.players.push({ address: walletAddress, name: walletAddress.slice(0, 8), socketId: socket.id, isReady: false, isBot: false })
+            }
+            socket.join(room.roomId)
+            currentRoomId = room.roomId
+            socket.emit('joined-room', { roomId: room.roomId, room: getRoomSummary(room) })
+            broadcastRoomUpdate(io, room)
+        })
 
-        // ── Start Game ──────────────────────────────────────────────────────────
-        socket.on("start-game", ({ walletAddress }) => {
-            if (!currentRoomId) return;
-            const room = rooms.get(currentRoomId);
-            if (!room) return socket.emit("error", { message: "Room not found" });
-            if (room.host !== walletAddress) return socket.emit("error", { message: "Only host can start" });
-            if (room.players.length < 1) return socket.emit("error", { message: "Need at least 1 player" });
-            if (room.status !== "waiting") return socket.emit("error", { message: "Game already started" });
+        // ── Add Bot ───────────────────────────────────────────────────────────
+        socket.on('add-bot', ({ walletAddress, difficulty = 'easy' }) => {
+            if (!currentRoomId) return
+            const room = rooms.get(currentRoomId)
+            if (!room || room.host !== walletAddress) return
+            if (room.status !== 'waiting') return
+            if (room.players.length >= room.maxPlayers) return
 
-            room.status = "in_game";
-            const state = initGameState(room.roomId, room.players);
-            room.gameState = state;
-
-            broadcastRoomUpdate(io, room);
-            io.to(room.roomId).emit("game-starting", { players: room.players, countdown: 3 });
-
-            // Start first mini game after 4s countdown
-            setTimeout(() => startNextMiniGame(io, room.roomId, rooms), 4000);
-        });
-
-        // ── Add Bot (host only) ──────────────────────────────────────────────────
-        socket.on("add-bot", ({ walletAddress, difficulty = "easy" }) => {
-            if (!currentRoomId) return;
-            const room = rooms.get(currentRoomId);
-            if (!room) return socket.emit("error", { message: "Room not found" });
-            if (room.host !== walletAddress) return socket.emit("error", { message: "Only host can add bots" });
-            if (room.status !== "waiting") return socket.emit("error", { message: "Cannot add bots once game started" });
-            if (room.players.length >= room.maxPlayers) return socket.emit("error", { message: "Room is full" });
-
-            const bot = createBotPlayer(difficulty);
-            bot.socketId = null;
-            bot.isReady = true;
-            room.players.push(bot);
-
-            broadcastRoomUpdate(io, room);
-            io.to(currentRoomId).emit("chat-message", {
-                address: "SYSTEM",
-                message: `🤖 Bot player "${bot.name}" joined! (${difficulty} difficulty)`,
+            const personalities = ['hothead', 'stubborn', 'lazy', 'gentle', 'competitive']
+            const p = personalities[Math.floor(Math.random() * personalities.length)]
+            const botAddr = `Bot_${p.slice(0, 3).toUpperCase()}_${uuidv4().slice(0, 4)}`
+            const bot = {
+                address: botAddr,
+                name: `🤖${p.charAt(0).toUpperCase() + p.slice(1)}Bot`,
+                socketId: null,
+                isReady: true,
+                isBot: true,
+                botPersonality: p,
+            }
+            room.players.push(bot)
+            broadcastRoomUpdate(io, room)
+            io.to(currentRoomId).emit('chat-message', {
+                address: 'SYSTEM',
+                message: `🤖 ${bot.name} joined! (${p} personality)`,
                 timestamp: Date.now(),
-            });
-            console.log(`[Bot] Added ${bot.name} (${difficulty}) to room ${currentRoomId}`);
-        });
+            })
+        })
 
-        // ── Chat Message ────────────────────────────────────────────────────────
-        socket.on("chat-message", ({ walletAddress, message }) => {
-            if (!currentRoomId) return;
-            const room = rooms.get(currentRoomId);
-            if (!room) return;
-            const trimmed = String(message).slice(0, 200);
-            const msg = { address: walletAddress, message: trimmed, timestamp: Date.now() };
-            room.chatMessages.push(msg);
-            if (room.chatMessages.length > 100) room.chatMessages.shift();
-            io.to(currentRoomId).emit("chat-message", msg);
-        });
-
-        // ── Player Movement ──────────────────────────────────────────────────────
-        socket.on("player-move", ({ address, x, y, vx, vy, animation, roomId: rId }) => {
-            const rid = rId || currentRoomId;
-            if (!rid) return;
-
-            if (!checkMoveRateLimit(socket.id)) return; // rate limit
-            if (!validatePosition(socket.id, x, y)) return; // cheat check
-
-            socket.to(rid).emit("player-moved", { address, x, y, vx, vy, animation });
-        });
-
-        // ── Player Action ────────────────────────────────────────────────────────
-        socket.on("player-action", ({ address, action }) => {
-            if (!currentRoomId) return;
-            const state = getGameState(currentRoomId);
-            if (!state) return;
-
-            const result = handlePlayerAction(currentRoomId, address, action);
-            if (!result.valid) return;
-
-            // Broadcast result
-            io.to(currentRoomId).emit("action-result", { address, action, result: result.result });
-
-            // Handle trivia answers
-            if (action.type === "answer" && state.currentGame?.id === "trivia") {
-                if (result.result.correct) {
-                    // First correct answer wins the round
-                    endMiniGame(io, currentRoomId, rooms, address);
-                }
+        // ── Player Ready ──────────────────────────────────────────────────────
+        socket.on('player-ready', ({ walletAddress, isReady }) => {
+            if (!currentRoomId) return
+            const room = rooms.get(currentRoomId)
+            if (!room) return
+            const player = room.players.find(p => p.address === walletAddress)
+            if (player) {
+                player.isReady = isReady
+                broadcastRoomUpdate(io, room)
             }
-        });
+        })
 
-        // ── Player Eliminated ────────────────────────────────────────────────────
-        socket.on("player-eliminated", ({ address }) => {
-            if (!currentRoomId) return;
-            const state = getGameState(currentRoomId);
-            if (!state) return;
+        // ── Start Game (Board Game) ───────────────────────────────────────────
+        socket.on('start-game', ({ walletAddress }) => {
+            if (!currentRoomId) return
+            const room = rooms.get(currentRoomId)
+            if (!room) return socket.emit('error', { message: 'Room not found' })
+            if (room.host !== walletAddress) return socket.emit('error', { message: 'Only host can start' })
+            if (room.players.length < 1) return socket.emit('error', { message: 'Need at least 1 player' })
+            if (room.status !== 'waiting') return socket.emit('error', { message: 'Game already started' })
 
-            handlePlayerAction(currentRoomId, address, { type: "eliminated" });
-            io.to(currentRoomId).emit("action-result", {
-                address,
-                action: { type: "eliminated" },
-                result: { eliminated: address },
-            });
+            room.status = 'in_game'
+            const boardState = createBoardState(room.roomId, room.players)
 
-            const room = rooms.get(currentRoomId);
-            if (!room) return;
-            const alive = room.players.filter(
-                (p) => !state.eliminatedPlayers.has(p.address) && !p.isBot
-            );
-            if (alive.length === 1) {
-                endMiniGame(io, currentRoomId, rooms, alive[0].address);
-            }
-        });
+            broadcastRoomUpdate(io, room)
+            io.to(room.roomId).emit('game-starting', {
+                players: room.players,
+                boardState: getSafeBoardState(boardState),
+                tiles: BOARD_TILES,
+            })
 
-        // ── Force End Mini Game (host only) ──────────────────────────────────────
-        socket.on("force-end-minigame", ({ walletAddress }) => {
-            if (!currentRoomId) return;
-            const room = rooms.get(currentRoomId);
-            if (!room || room.host !== walletAddress) return;
-            endMiniGame(io, currentRoomId, rooms, null);
-        });
+            // Schedule bot turns
+            scheduleBotTurn(io, rooms, room.roomId)
+        })
 
-        // ── Room List ────────────────────────────────────────────────────────────
-        socket.on("room-list", () => {
-            const publicRooms = [];
-            for (const [, room] of rooms) {
-                if (!room.isPrivate && room.status === "waiting") {
-                    publicRooms.push({
-                        roomId: room.roomId,
-                        roomName: room.roomName,
-                        host: room.host,
-                        playerCount: room.players.length,
-                        maxPlayers: room.maxPlayers,
-                        createdAt: room.createdAt,
-                    });
-                }
-            }
-            socket.emit("room-list", publicRooms);
-        });
+        // ── Roll Dice ─────────────────────────────────────────────────────────
+        socket.on('roll-dice', ({ walletAddress }) => {
+            if (!currentRoomId) return
+            if (!checkRateLimit(socket.id, 500)) return
 
-        // ── Leave Room ───────────────────────────────────────────────────────────
-        socket.on("leave-room", ({ walletAddress }) => {
-            handleLeave(walletAddress);
-        });
+            const result = rollDice(currentRoomId, walletAddress)
+            if (result.error) return socket.emit('error', { message: result.error })
 
-        // ── Disconnect ───────────────────────────────────────────────────────────
-        socket.on("disconnect", () => {
-            console.log(`[Socket] Disconnected: ${socket.id}`);
-            moveRateLimits.delete(socket.id);
-            lastPositions.delete(socket.id);
+            io.to(currentRoomId).emit('dice-rolled', {
+                address: walletAddress,
+                dice: result.effect.dice,
+                newPosition: result.effect.newPos,
+                tileEffect: result.effect,
+                boardState: result.state,
+                message: result.effect.message,
+            })
 
-            if (currentRoomId) {
-                const room = rooms.get(currentRoomId);
+            // Trigger horse race if minigame tile
+            if (result.effect.type === 'minigame') {
+                const room = rooms.get(currentRoomId)
                 if (room) {
-                    const player = room.players.find((p) => p.socketId === socket.id);
-                    if (player) {
-                        // Mark as disconnected but keep in room for 30s
-                        player.disconnected = true;
-                        io.to(currentRoomId).emit("player-disconnected", { address: player.address });
+                    setTimeout(() => {
+                        const horses = startHorseRace(io, currentRoomId, room.players)
+                    }, 2000)
+                }
+            }
 
+            // Check for winner
+            if (result.effect.winner) {
+                setTimeout(() => {
+                    io.to(currentRoomId).emit('board-game-over', {
+                        winner: result.effect.winner,
+                        boardState: result.state,
+                    })
+                    cleanupBoardState(currentRoomId)
+                }, 1500)
+            } else {
+                // Schedule bot turn if needed
+                setTimeout(() => scheduleBotTurn(io, rooms, currentRoomId), 1500)
+            }
+        })
+
+        // ── Horse Race Events ─────────────────────────────────────────────────
+
+        // Player encourages their horse (SPACE key)
+        socket.on('horse-encourage', ({ walletAddress }) => {
+            const race = horseRaces.get(currentRoomId)
+            if (!race) return
+            const horse = race.horses.find(h => h.playerAddress === walletAddress)
+            if (!horse || horse.finished) return
+
+            // Apply encouragement based on personality
+            const mod = calculateSpeedModifier(horse.personality, 'go run fast', {
+                isLeading: race.horses.indexOf(horse) === 0,
+                isLast: race.horses.indexOf(horse) === race.horses.length - 1,
+            })
+            horse.speedModifier = mod.modifier
+            horse.emotion = mod.emotion
+            setTimeout(() => { if (horse) horse.speedModifier = 1.0 }, mod.duration || 2000)
+
+            io.to(currentRoomId).emit('horse-emotion-change', {
+                playerAddress: walletAddress,
+                emotion: mod.emotion,
+                modifier: mod.modifier,
+            })
+        })
+
+        // Player chats with their horse
+        socket.on('horse-chat', async ({ walletAddress, message }) => {
+            const race = horseRaces.get(currentRoomId)
+            if (!race) return
+            const horse = race.horses.find(h => h.playerAddress === walletAddress)
+            if (!horse) return
+
+            // Calculate speed effect from message
+            const sortedByPos = [...race.horses].sort((a, b) => b.position - a.position)
+            const myRank = sortedByPos.findIndex(h => h.playerAddress === walletAddress)
+            const mod = calculateSpeedModifier(horse.personality, message, {
+                isLeading: myRank === 0,
+                isLast: myRank === race.horses.length - 1,
+            })
+
+            horse.speedModifier = mod.modifier
+            horse.emotion = mod.emotion
+            setTimeout(() => { if (horse) horse.speedModifier = 1.0 }, mod.duration || 2000)
+
+            // Broadcast chat + emotion change to room
+            io.to(currentRoomId).emit('horse-chat-sent', {
+                playerAddress: walletAddress,
+                message,
+                horseName: horse.name,
+                personality: horse.personality,
+                emotion: mod.emotion,
+            })
+
+            io.to(currentRoomId).emit('horse-emotion-change', {
+                playerAddress: walletAddress,
+                emotion: mod.emotion,
+                modifier: mod.modifier,
+            })
+
+            // Generate horse reply (async, don't block)
+            generateHorseReply(horse.personality, message).then(reply => {
+                io.to(currentRoomId).emit('horse-reply', {
+                    playerAddress: walletAddress,
+                    horseName: horse.name,
+                    reply,
+                    emotion: mod.emotion,
+                })
+            })
+        })
+
+        // ── Horse Race End (client reports) ───────────────────────────────────
+        socket.on('horse-race-winner', ({ walletAddress }) => {
+            if (!currentRoomId) return
+            const race = horseRaces.get(currentRoomId)
+            if (!race || race.finished) return
+
+            race.finished = true
+            clearInterval(race.interval)
+
+            const result = afterMinigame(currentRoomId, walletAddress)
+            io.to(currentRoomId).emit('horse-race-end', { winner: walletAddress })
+
+            if (result?.winner) {
+                setTimeout(() => {
+                    io.to(currentRoomId).emit('board-game-over', { winner: result.winner, boardState: result.state })
+                    cleanupBoardState(currentRoomId)
+                }, 1500)
+            } else {
+                io.to(currentRoomId).emit('board-updated', { boardState: result?.state })
+                scheduleBotTurn(io, rooms, currentRoomId)
+            }
+            horseRaces.delete(currentRoomId)
+        })
+
+        // ── Room List ─────────────────────────────────────────────────────────
+        socket.on('room-list', () => {
+            const publicRooms = []
+            for (const [, room] of rooms) {
+                if (!room.isPrivate && room.status === 'waiting') {
+                    publicRooms.push({
+                        roomId: room.roomId, roomName: room.roomName,
+                        host: room.host, playerCount: room.players.length,
+                        maxPlayers: room.maxPlayers, createdAt: room.createdAt,
+                    })
+                }
+            }
+            socket.emit('room-list', publicRooms)
+        })
+
+        // ── Chat ──────────────────────────────────────────────────────────────
+        socket.on('chat-message', ({ walletAddress, message }) => {
+            if (!currentRoomId) return
+            const msg = { address: walletAddress, message: String(message).slice(0, 200), timestamp: Date.now() }
+            io.to(currentRoomId).emit('chat-message', msg)
+        })
+
+        // ── Leave / Disconnect ────────────────────────────────────────────────
+        socket.on('leave-room', ({ walletAddress }) => handleLeave(walletAddress))
+
+        socket.on('disconnect', () => {
+            console.log(`[Socket] Disconnected: ${socket.id}`)
+            moveRateLimits.delete(socket.id)
+            if (currentRoomId) {
+                const room = rooms.get(currentRoomId)
+                if (room) {
+                    const player = room.players.find(p => p.socketId === socket.id)
+                    if (player && !player.isBot) {
+                        player.disconnected = true
                         setTimeout(() => {
-                            const r = rooms.get(currentRoomId);
-                            if (r && player.disconnected) {
-                                handleLeave(player.address);
-                            }
-                        }, 30000);
+                            if (player.disconnected) handleLeave(player.address)
+                        }, 30000)
                     }
                 }
             }
-        });
+        })
 
-        // ─── Internal Leave Handler ────────────────────────────────────────────
         function handleLeave(walletAddress) {
-            if (!currentRoomId) return;
-            const room = rooms.get(currentRoomId);
-            if (!room) return;
-
-            room.players = room.players.filter((p) => p.address !== walletAddress);
-
+            if (!currentRoomId) return
+            const room = rooms.get(currentRoomId)
+            if (!room) return
+            room.players = room.players.filter(p => p.address !== walletAddress)
             if (room.players.length === 0) {
-                // Clean up empty room
-                cleanupGameState(currentRoomId);
-                rooms.delete(currentRoomId);
-                currentRoomId = null;
-                return;
+                cleanupBoardState(currentRoomId)
+                stopHorseRace(currentRoomId)
+                rooms.delete(currentRoomId)
+                currentRoomId = null
+                return
             }
-
-            // Transfer host if needed
             if (room.host === walletAddress) {
-                room.host = room.players[0].address;
-                io.to(currentRoomId).emit("host-changed", { newHost: room.host });
+                room.host = room.players[0].address
+                io.to(currentRoomId).emit('host-changed', { newHost: room.host })
             }
-
-            socket.leave(currentRoomId);
-            broadcastRoomUpdate(io, room);
-            currentRoomId = null;
+            socket.leave(currentRoomId)
+            broadcastRoomUpdate(io, room)
+            currentRoomId = null
         }
-    });
+    })
 }
 
-module.exports = { setupSocketHandlers };
+// ─── Bot Auto-Play ─────────────────────────────────────────────────────────────
+function scheduleBotTurn(io, rooms, roomId) {
+    const board = getBoardState(roomId)
+    if (!board || board.phase !== 'rolling') return
+
+    const room = rooms.get(roomId)
+    if (!room) return
+
+    const currentPlayer = board.players[board.turn]
+    if (!currentPlayer?.isBot) return
+
+    // Bot rolls dice after 2-3 second "thinking" delay
+    const delay = 2000 + Math.random() * 1500
+    setTimeout(() => {
+        const b = getBoardState(roomId)
+        if (!b || b.phase !== 'rolling') return
+
+        const result = rollDice(roomId, currentPlayer.address)
+        if (!result.ok) return
+
+        io.to(roomId).emit('dice-rolled', {
+            address: currentPlayer.address,
+            dice: result.effect.dice,
+            newPosition: result.effect.newPos,
+            tileEffect: result.effect,
+            boardState: result.state,
+            message: result.effect.message,
+        })
+
+        // Bot sends a chat message occasionally
+        if (Math.random() < 0.4) {
+            const botChats = ['🤖 My turn!', 'Let\'s go! 🎲', 'Beep boop, rolling!', '📊 Calculating optimal move...', '⚡ Bot strikes again!']
+            io.to(roomId).emit('chat-message', {
+                address: currentPlayer.address,
+                message: botChats[Math.floor(Math.random() * botChats.length)],
+                timestamp: Date.now(),
+            })
+        }
+
+        if (result.effect.winner) {
+            setTimeout(() => {
+                io.to(roomId).emit('board-game-over', { winner: result.effect.winner, boardState: result.state })
+                cleanupBoardState(roomId)
+            }, 1500)
+        } else if (result.effect.type === 'minigame') {
+            const rm = rooms.get(roomId)
+            if (rm) setTimeout(() => startHorseRace(io, roomId, rm.players), 2000)
+        } else {
+            setTimeout(() => scheduleBotTurn(io, rooms, roomId), 1500)
+        }
+    }, delay)
+}
+
+module.exports = { setupSocketHandlers }

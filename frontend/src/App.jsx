@@ -1,7 +1,7 @@
 import { Routes, Route } from 'react-router-dom'
 import HomePage from './pages/HomePage'
 import LobbyPage from './pages/LobbyPage'
-import GameRoom from './pages/GameRoom'
+import BoardPage from './pages/BoardPage'
 
 export default function App() {
     return (
@@ -9,7 +9,9 @@ export default function App() {
             <Routes>
                 <Route path="/" element={<HomePage />} />
                 <Route path="/lobby" element={<LobbyPage />} />
-                <Route path="/game/:roomId" element={<GameRoom />} />
+                <Route path="/board/:roomId" element={<BoardPage />} />
+                {/* Legacy redirect */}
+                <Route path="/game/:roomId" element={<BoardPage />} />
             </Routes>
         </div>
     )
