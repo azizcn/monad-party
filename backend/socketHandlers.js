@@ -54,7 +54,7 @@ function atYarisiBasla(io, roomId, oyuncular) {
         io.to(roomId).emit('at-konumlar', {
             atlar: yaris.atlar.map(a => ({ playerAddress: a.playerAddress, position: a.position, emotion: a.emotion, finished: a.finished, speedMod: a.speedModifier || 1.0 }))
         })
-        const timeout = (Date.now() - yaris.baslangic > 90000)  // 90s timeout
+        const timeout = (Date.now() - yaris.baslangic > 120000)  // 120s timeout
         if (timeout) {
             clearInterval(yaris.interval); yaris.bitti = true
             const w = yaris.kazanan || yaris.atlar.sort((a, b) => b.position - a.position)[0]?.playerAddress
@@ -206,7 +206,10 @@ function setupSocketHandlers(io, rooms) {
                 if (room) setTimeout(() => atYarisiBasla(io, mevcutOdaId, room.oyuncular), 3000)
             } else if (sonuc.etki.kazanan) {
                 setTimeout(() => io.to(mevcutOdaId).emit('oyun-bitti', { kazanan: sonuc.etki.kazanan, durum: sonuc.durum }), 1500)
-            } else if (!sonuc.etki.bekliyor) {
+            } else if (sonuc.etki.bekliyor) {
+                // Bot yol ayrımına geldi — otomatik seçsin
+                setTimeout(() => botSirasiIsle(io, rooms, mevcutOdaId), 1500)
+            } else {
                 setTimeout(() => botSirasiIsle(io, rooms, mevcutOdaId), 1800)
             }
         })
