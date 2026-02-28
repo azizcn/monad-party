@@ -362,7 +362,7 @@ function getSafeDurum(state) {
     return {
         oyuncular: state.oyuncular,
         tur: state.tur,
-        mevcutOyuncu: state.oyuncular.filter(o => !o.elendi)[0]?.adres || state.oyuncular[state.tur]?.adres,
+        mevcutOyuncu: state.oyuncular[state.tur]?.adres,
         faz: state.faz,
         kazanan: state.kazanan,
         sonZar: state.sonZar,
