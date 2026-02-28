@@ -26,17 +26,19 @@ export default function BoardPage() {
     const chatRef = useRef(null)
 
     const {
-        players, gameStatus, boardState, tiles, currentPlayer,
+        players, gameStatus, boardState, boardPhase, tiles, currentPlayer,
         isHost, chatMessages, sendChat, setReady, startGame,
-        leaveRoom, addBot, rollDice, horses, horseRaceActive,
+        leaveRoom, addBot, rollDice, initialRoll, horses, horseRaceActive,
         boardGameOver, connected, roomData, lastDice, tileLog,
+        myInitialRolled,
     } = useGameStore()
 
     useEffect(() => {
         if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
     }, [chatMessages])
 
-    const isMyTurn = boardState?.currentPlayer === address && gameStatus === 'in_game' && !horseRaceActive
+    const isMyTurn = boardState?.currentPlayer === address && gameStatus === 'in_game' && (boardPhase === 'rolling' || boardPhase === 'initial_roll') && !horseRaceActive
+    const isInitialRollPhase = boardPhase === 'initial_roll' && !myInitialRolled
     const readyCount = players.filter(p => p.isReady || p.isBot).length
     const canStart = isHost && players.length >= 1 && gameStatus === 'waiting'
     const canAddBot = isHost && players.length < (roomData?.maxPlayers || 8) && gameStatus === 'waiting'
@@ -45,6 +47,13 @@ export default function BoardPage() {
         if (!isMyTurn || diceAnimating) return
         setDiceAnimating(true)
         rollDice(address)
+        setTimeout(() => setDiceAnimating(false), 1200)
+    }
+
+    const handleInitialRoll = () => {
+        if (myInitialRolled || diceAnimating) return
+        setDiceAnimating(true)
+        initialRoll(address)
         setTimeout(() => setDiceAnimating(false), 1200)
     }
 
@@ -196,7 +205,9 @@ export default function BoardPage() {
                             currentPlayer={boardState?.currentPlayer}
                             address={address}
                             onRollDice={handleRollDice}
-                            isMyTurn={isMyTurn}
+                            onInitialRoll={handleInitialRoll}
+                            isMyTurn={isMyTurn && boardPhase === 'rolling'}
+                            isInitialRollPhase={isInitialRollPhase}
                             lastDice={lastDice}
                             diceAnimating={diceAnimating}
                         />

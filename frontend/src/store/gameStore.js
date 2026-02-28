@@ -18,10 +18,12 @@ const useGameStore = create((set, get) => ({
 
     // ─── Board Game State ─────────────────────────────────────────────────────────
     boardState: null,      // { players, turn, currentPlayer, phase, winner, lastDice, log, tiles }
+    boardPhase: 'idle',    // 'idle'|'initial_roll'|'rolling'|'minigame'|'finished'
     tiles: [],             // BOARD_TILES from server
-    lastDice: null,
+    lastDice: null,        // [d1, d2]
     tileLog: [],           // last tile effect messages
     boardGameOver: null,   // { winner, boardState }
+    myInitialRolled: false,
 
     // ─── Horse Race State ─────────────────────────────────────────────────────────
     horseRaceActive: false,
@@ -65,25 +67,38 @@ const useGameStore = create((set, get) => ({
         socket.on('host-changed', ({ newHost }) => set({ isHost: newHost === address }))
 
         // ── Board Game Events ───────────────────────────────────────────────────────
-        socket.on('game-starting', ({ players, boardState, tiles }) => {
+        socket.on('game-starting', ({ players, boardState, tiles, phase }) => {
             set({
                 players,
                 gameStatus: 'in_game',
                 boardState,
+                boardPhase: phase || 'initial_roll',
                 tiles: tiles || [],
                 tileLog: [],
                 boardGameOver: null,
                 horseRaceActive: false,
                 horsePositions: {},
                 horseEmotions: {},
+                myInitialRolled: false,
             })
         })
 
-        socket.on('dice-rolled', ({ address: addr, dice, newPosition, tileEffect, boardState, message }) => {
+        socket.on('initial-roll-result', ({ address: addr, dice, orderDetermined, boardState, message }) => {
+            set(state => ({
+                boardState: boardState || state.boardState,
+                boardPhase: orderDetermined ? 'rolling' : 'initial_roll',
+                lastDice: dice || state.lastDice,
+                tileLog: message ? [...(state.tileLog || []).slice(-9), message] : state.tileLog,
+                myInitialRolled: addr === state.myAddress ? true : state.myInitialRolled,
+            }))
+        })
+
+        socket.on('dice-rolled', ({ address: addr, dice, total, newPosition, tileEffect, boardState, message }) => {
             set(state => ({
                 boardState,
-                lastDice: dice,
-                tileLog: [...(state.tileLog || []).slice(-9), message],
+                boardPhase: boardState?.phase || state.boardPhase,
+                lastDice: Array.isArray(dice) ? dice : [dice, 0],
+                tileLog: message ? [...(state.tileLog || []).slice(-9), message] : state.tileLog,
             }))
         })
 
@@ -170,6 +185,10 @@ const useGameStore = create((set, get) => ({
     addBot: (walletAddress, difficulty = 'easy') => {
         get().socket?.emit('add-bot', { walletAddress, difficulty })
     },
+    initialRoll: (walletAddress) => {
+        get().socket?.emit('initial-roll', { walletAddress })
+        set({ myInitialRolled: true })
+    },
     rollDice: (walletAddress) => {
         get().socket?.emit('roll-dice', { walletAddress })
     },
@@ -189,10 +208,10 @@ const useGameStore = create((set, get) => ({
         get().socket?.emit('leave-room', { walletAddress })
         set({
             roomId: null, roomData: null, players: [], gameStatus: 'idle',
-            boardState: null, tiles: [], lastDice: null, tileLog: [],
+            boardState: null, boardPhase: 'idle', tiles: [], lastDice: null, tileLog: [],
             boardGameOver: null, horseRaceActive: false, horses: [],
             horsePositions: {}, horseEmotions: {}, horseReplies: [],
-            isHost: false, chatMessages: [], error: null,
+            isHost: false, chatMessages: [], error: null, myInitialRolled: false,
         })
     },
     clearError: () => set({ error: null }),
