@@ -96,8 +96,7 @@ function atCizSprite(ctx, x, y, imgRef, kare, renk, duygu, isim, bitti, isMe, sc
     }
 
     if (img && img.complete && img.naturalWidth > 0) {
-        // Sprite sheet'ten ilgili frame'i çiz (arka plan çizilmez — şeffaflık korunur)
-        ctx.globalCompositeOperation = 'source-over'
+        // Sprite sheet'ten ilgili frame'i çiz
         ctx.drawImage(img, frameIdx * W, 0, W, H, -dw / 2, -dh * 0.5, dw, dh)
     } else {
         // Fallback: basit koşu animasyonu
@@ -146,12 +145,29 @@ export default function HorseRace({ atlar = [], onYarisBitti }) {
     const { atSohbetGonder, atTesvik, atKonumlar, atDuygular, atCevaplar } = useGameStore()
     const benimAtim = atlar.find(a => a.playerAddress === address)
 
-    // Jokey sprite yükle
+    // Jokey sprite yükle + beyaz arka planı kaldır (PNG beyaz bg var)
     useEffect(() => {
         const img = new Image()
-        img.onload = () => { jokeySpriteRef.current = img }
+        img.crossOrigin = 'anonymous'
+        img.onload = () => {
+            try {
+                const oc = document.createElement('canvas')
+                oc.width = img.naturalWidth; oc.height = img.naturalHeight
+                const c2 = oc.getContext('2d')
+                c2.drawImage(img, 0, 0)
+                const id = c2.getImageData(0, 0, oc.width, oc.height)
+                const d = id.data
+                for (let i = 0; i < d.length; i += 4) {
+                    // Beyaz / çok açık gri pikselleri şeffaf yap
+                    if (d[i] > 210 && d[i + 1] > 210 && d[i + 2] > 210) d[i + 3] = 0
+                }
+                c2.putImageData(id, 0, 0)
+                jokeySpriteRef.current = oc   // işlenmiş canvas'ı sprite olarak kullan
+            } catch {
+                jokeySpriteRef.current = img  // CORS hatası vs fallback
+            }
+        }
         img.onerror = () => { jokeySpriteRef.current = null }
-        // Kullanıcı tarafından sağlanan jokey görseli
         img.src = '/jockey_sprite.png'
     }, [])
 
@@ -295,11 +311,13 @@ export default function HorseRace({ atlar = [], onYarisBitti }) {
                 const pos = atKonumlar?.[at.playerAddress]?.position ?? at.position ?? 0
                 const duygu = atDuygular?.[at.playerAddress] ?? 'neutral'
                 const yPos = pistTop + 30 + (i * Y_SPACING)
-                const atX = 60 + (pos / 100) * (finishLineX - 70)
                 const bitmis = atKonumlar?.[at.playerAddress]?.finished || false
                 const isMe = at.playerAddress === address
-                const sprScale = 0.6
+                const sprScale = 1.0   // büyütüldü: 0.6 → 1.0
                 const speedMod = atKonumlar?.[at.playerAddress]?.speedMod ?? 1.0
+                // Bitince finish line'da dursun, ekran dışına çıkmasın
+                const rawX = 60 + (pos / 100) * (finishLineX - 70)
+                const atX = Math.min(finishLineX - 8, rawX)
 
                 atCizSprite(ctx, atX, yPos, jokeySpriteRef, bitmis ? 0 : kareRef.current, at.color || '#8B4513', duygu, at.name, bitmis, isMe, sprScale, speedMod)
             })
