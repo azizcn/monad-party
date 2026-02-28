@@ -14,6 +14,9 @@ import LastStanding from '../components/minigames/LastStanding'
 const AVATAR_COLORS = ['#7c3aed', '#06b6d4', '#fbbf24', '#ec4899', '#10b981', '#f97316', '#3b82f6', '#ef4444']
 const GAME_ICONS = { 'last-standing': '⚔️', 'coin-rush': '💰', 'bomb-dodge': '💣', race: '🏁', trivia: '🧠', 'platform-survival': '🏔️' }
 
+// ── Test mode: no contract address = free play ──────────────────────────────
+const TEST_MODE = !import.meta.env.VITE_CONTRACT_ADDRESS
+
 function PlayerSlot({ player, index, isMe }) {
     const color = AVATAR_COLORS[index % 8]
     return (
@@ -32,13 +35,13 @@ function PlayerSlot({ player, index, isMe }) {
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontFamily: 'var(--font-orbitron)', fontSize: '0.7rem', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {player.isBot ? player.address : `${player.address?.slice(0, 6)}...${player.address?.slice(-4)}`}
+                    {player.isBot ? (player.name || player.address) : `${player.address?.slice(0, 6)}...${player.address?.slice(-4)}`}
                     {isMe && <span style={{ marginLeft: '0.4rem', fontSize: '0.6rem', color: 'var(--color-cyan-light)' }}>(YOU)</span>}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.2rem' }}>
                     <div style={{ width: 8, height: 8, borderRadius: '50%', background: player.isReady ? 'var(--color-green)' : 'var(--color-red)', boxShadow: player.isReady ? '0 0 6px var(--color-green)' : 'none' }} />
                     <span style={{ fontSize: '0.65rem', color: player.isReady ? 'var(--color-green)' : 'var(--color-text-muted)' }}>
-                        {player.isBot ? 'BOT' : player.isReady ? 'READY' : 'WAITING...'}
+                        {player.isBot ? '🤖 BOT' : player.isReady ? 'READY' : 'WAITING...'}
                     </span>
                 </div>
             </div>
@@ -46,7 +49,7 @@ function PlayerSlot({ player, index, isMe }) {
     )
 }
 
-function EmptySlot({ index }) {
+function EmptySlot() {
     return (
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem 1rem', border: '1px dashed var(--color-border)', borderRadius: '10px', opacity: 0.4 }}>
             <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--color-surface2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem' }}>?</div>
@@ -83,12 +86,14 @@ export default function GameRoom() {
     const [myReady, setMyReady] = useState(false)
     const [allReadyCountdown, setAllReadyCountdown] = useState(null)
     const [countdown, setCountdown] = useState(null)
+    const [botDifficulty, setBotDifficulty] = useState('easy')
+    const [addingBot, setAddingBot] = useState(false)
     const chatRef = useRef(null)
 
     const {
         players, gameStatus, currentMiniGame, scores, round, totalRounds,
-        isHost, chatMessages, sendChat, setReady, startGame, leaveRoom,
-        announcement, gameOverData, error, connected,
+        isHost, chatMessages, sendChat, setReady, startGame, leaveRoom, addBot,
+        announcement, gameOverData, error, connected, roomData,
     } = useGameStore()
 
     useEffect(() => {
@@ -133,6 +138,12 @@ export default function GameRoom() {
 
     const handleStart = () => startGame(address)
 
+    const handleAddBot = () => {
+        setAddingBot(true)
+        addBot(address, botDifficulty)
+        setTimeout(() => setAddingBot(false), 1000)
+    }
+
     const handleChatSend = (e) => {
         e.preventDefault()
         if (!chatInput.trim()) return
@@ -146,7 +157,9 @@ export default function GameRoom() {
     }
 
     const readyCount = players.filter((p) => p.isReady || p.isBot).length
-    const canStart = isHost && readyCount >= 2 && gameStatus === 'waiting'
+    // Can start with 1+ player (test mode) or 2+ (normal)
+    const canStart = isHost && players.length >= 1 && gameStatus === 'waiting'
+    const canAddBot = isHost && players.length < (roomData?.maxPlayers || 8) && gameStatus === 'waiting'
 
     if (gameStatus === 'game_over' && gameOverData) {
         return <GameOver data={gameOverData} />
@@ -159,6 +172,14 @@ export default function GameRoom() {
             <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1.5rem', background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)', zIndex: 10 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                     <button className="btn btn-ghost btn-sm" onClick={handleLeave}>← Leave</button>
+
+                    {/* Test mode badge */}
+                    {TEST_MODE && (
+                        <div style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.4)', borderRadius: '6px', padding: '0.2rem 0.6rem', fontSize: '0.6rem', fontFamily: 'var(--font-orbitron)', color: 'var(--color-green)', letterSpacing: '0.1em' }}>
+                            🆓 FREE PLAY MODE
+                        </div>
+                    )}
+
                     <span style={{ fontFamily: 'var(--font-pixel)', fontSize: '0.6rem', color: 'var(--color-purple-light)' }}>ROOM CODE</span>
                     <button
                         style={{ fontFamily: 'var(--font-orbitron)', fontSize: '0.875rem', fontWeight: 700, background: 'var(--color-bg2)', border: '1px solid var(--color-border)', borderRadius: '6px', padding: '0.3rem 0.75rem', color: 'var(--color-cyan-light)', cursor: 'pointer' }}
@@ -192,7 +213,7 @@ export default function GameRoom() {
             <div style={{ overflow: 'hidden', position: 'relative' }}>
                 {gameStatus === 'waiting' && (
                     <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem' }}>
-                        <div style={{ textAlign: 'center', maxWidth: 500 }}>
+                        <div style={{ textAlign: 'center', maxWidth: 540 }}>
                             {allReadyCountdown ? (
                                 <motion.div key="countdown" animate={{ scale: [1.5, 1], opacity: [0, 1] }} transition={{ duration: 0.5 }}>
                                     <div style={{ fontFamily: 'var(--font-pixel)', fontSize: '4rem', color: 'var(--color-yellow)', textShadow: 'var(--glow-yellow)' }}>{allReadyCountdown}</div>
@@ -200,30 +221,68 @@ export default function GameRoom() {
                                 </motion.div>
                             ) : (
                                 <>
-                                    <div style={{ fontFamily: 'var(--font-pixel)', fontSize: '0.8rem', color: 'var(--color-purple-light)', marginBottom: '1rem', letterSpacing: '0.1em' }}>WAITING FOR PLAYERS...</div>
+                                    <div style={{ fontFamily: 'var(--font-pixel)', fontSize: '0.75rem', color: 'var(--color-purple-light)', marginBottom: '1rem', letterSpacing: '0.1em' }}>
+                                        {players.length < 2 ? 'ADD BOTS OR WAIT FOR PLAYERS...' : 'WAITING FOR PLAYERS...'}
+                                    </div>
                                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem', color: 'var(--color-text-muted)' }}>{readyCount}/{players.length} ready</div>
                                     <div className="progress-bar" style={{ width: 300, margin: '0 auto 2rem' }}>
                                         <div className="progress-fill" style={{ width: `${(readyCount / Math.max(players.length, 1)) * 100}%` }} />
                                     </div>
-                                    <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
-                                        <motion.button
-                                            className={`btn ${myReady ? 'btn-danger' : 'btn-green'} btn-lg`}
-                                            style={{ background: myReady ? undefined : 'linear-gradient(135deg, var(--color-green), #34d399)', color: myReady ? undefined : '#000' }}
-                                            onClick={handleReady}
-                                            whileHover={{ scale: 1.05 }}
-                                            whileTap={{ scale: 0.95 }}
-                                        >
-                                            {myReady ? '❌ NOT READY' : '✅ READY'}
-                                        </motion.button>
-                                        {canStart && (
+
+                                    {/* Action buttons */}
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'center' }}>
+                                        <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
                                             <motion.button
-                                                className="btn btn-primary btn-lg animate-pulse-glow"
-                                                onClick={handleStart}
+                                                className={`btn ${myReady ? 'btn-danger' : 'btn-green'} btn-lg`}
+                                                style={{ background: myReady ? undefined : 'linear-gradient(135deg, var(--color-green), #34d399)', color: myReady ? undefined : '#000' }}
+                                                onClick={handleReady}
                                                 whileHover={{ scale: 1.05 }}
                                                 whileTap={{ scale: 0.95 }}
                                             >
-                                                🚀 START GAME
+                                                {myReady ? '❌ NOT READY' : '✅ READY'}
                                             </motion.button>
+
+                                            {canStart && (
+                                                <motion.button
+                                                    className="btn btn-primary btn-lg animate-pulse-glow"
+                                                    onClick={handleStart}
+                                                    whileHover={{ scale: 1.05 }}
+                                                    whileTap={{ scale: 0.95 }}
+                                                >
+                                                    🚀 START GAME
+                                                </motion.button>
+                                            )}
+                                        </div>
+
+                                        {/* ── Add Bot Button (host only) ── */}
+                                        {canAddBot && (
+                                            <motion.div
+                                                initial={{ opacity: 0, y: 8 }}
+                                                animate={{ opacity: 1, y: 0 }}
+                                                style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: '10px', padding: '0.5rem 0.75rem' }}
+                                            >
+                                                <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-orbitron)' }}>BOT:</span>
+                                                <select
+                                                    value={botDifficulty}
+                                                    onChange={(e) => setBotDifficulty(e.target.value)}
+                                                    style={{ background: 'var(--color-bg2)', border: '1px solid var(--color-border)', borderRadius: '6px', color: 'var(--color-text)', padding: '0.25rem 0.4rem', fontSize: '0.75rem', cursor: 'pointer', fontFamily: 'var(--font-orbitron)' }}
+                                                >
+                                                    <option value="easy">Easy</option>
+                                                    <option value="medium">Medium</option>
+                                                    <option value="hard">Hard</option>
+                                                </select>
+                                                <motion.button
+                                                    className="btn btn-primary"
+                                                    style={{ padding: '0.35rem 0.85rem', fontSize: '0.8rem' }}
+                                                    onClick={handleAddBot}
+                                                    disabled={addingBot}
+                                                    whileHover={{ scale: 1.05 }}
+                                                    whileTap={{ scale: 0.95 }}
+                                                >
+                                                    {addingBot ? '⏳' : '🤖 Add Bot'}
+                                                </motion.button>
+                                                <span style={{ fontSize: '0.65rem', color: 'var(--color-text-dim)' }}>{players.filter(p => p.isBot).length} bots</span>
+                                            </motion.div>
                                         )}
                                     </div>
                                 </>
@@ -269,7 +328,7 @@ export default function GameRoom() {
                         {players.map((p, i) => (
                             <PlayerSlot key={p.address} player={p} index={i} isMe={p.address === address} />
                         ))}
-                        {Array.from({ length: Math.max(0, (useGameStore.getState().roomData?.maxPlayers || 8) - players.length) }).map((_, i) => (
+                        {Array.from({ length: Math.max(0, (roomData?.maxPlayers || 8) - players.length) }).map((_, i) => (
                             <EmptySlot key={`empty-${i}`} index={players.length + i} />
                         ))}
                     </div>
@@ -290,7 +349,9 @@ export default function GameRoom() {
                         {chatMessages.length === 0 && <div style={{ color: 'var(--color-text-dim)', fontSize: '0.75rem', textAlign: 'center', marginTop: '1rem' }}>No messages yet...</div>}
                         {chatMessages.map((msg, i) => (
                             <div key={i} style={{ fontSize: '0.75rem' }}>
-                                <span style={{ color: 'var(--color-purple-light)', fontWeight: 600 }}>{msg.address?.slice(0, 6)}: </span>
+                                <span style={{ color: msg.address === 'SYSTEM' ? 'var(--color-cyan-light)' : 'var(--color-purple-light)', fontWeight: 600 }}>
+                                    {msg.address === 'SYSTEM' ? '🔔' : msg.address?.slice(0, 6)}{msg.address !== 'SYSTEM' && ':'}{' '}
+                                </span>
                                 <span style={{ color: 'var(--color-text-muted)' }}>{msg.message}</span>
                             </div>
                         ))}

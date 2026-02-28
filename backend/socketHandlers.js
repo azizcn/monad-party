@@ -219,16 +219,8 @@ function setupSocketHandlers(io, rooms) {
             const room = rooms.get(currentRoomId);
             if (!room) return socket.emit("error", { message: "Room not found" });
             if (room.host !== walletAddress) return socket.emit("error", { message: "Only host can start" });
-            if (room.players.length < 2) return socket.emit("error", { message: "Need at least 2 players" });
+            if (room.players.length < 1) return socket.emit("error", { message: "Need at least 1 player" });
             if (room.status !== "waiting") return socket.emit("error", { message: "Game already started" });
-
-            // Fill with bots if less than 2 human players (optional, only if alone)
-            // Always add bots to make game more fun when < 4 players
-            while (room.players.length < 4) {
-                const bot = createBotPlayer("easy");
-                bot.socketId = null;
-                room.players.push(bot);
-            }
 
             room.status = "in_game";
             const state = initGameState(room.roomId, room.players);
@@ -239,6 +231,29 @@ function setupSocketHandlers(io, rooms) {
 
             // Start first mini game after 4s countdown
             setTimeout(() => startNextMiniGame(io, room.roomId, rooms), 4000);
+        });
+
+        // ── Add Bot (host only) ──────────────────────────────────────────────────
+        socket.on("add-bot", ({ walletAddress, difficulty = "easy" }) => {
+            if (!currentRoomId) return;
+            const room = rooms.get(currentRoomId);
+            if (!room) return socket.emit("error", { message: "Room not found" });
+            if (room.host !== walletAddress) return socket.emit("error", { message: "Only host can add bots" });
+            if (room.status !== "waiting") return socket.emit("error", { message: "Cannot add bots once game started" });
+            if (room.players.length >= room.maxPlayers) return socket.emit("error", { message: "Room is full" });
+
+            const bot = createBotPlayer(difficulty);
+            bot.socketId = null;
+            bot.isReady = true;
+            room.players.push(bot);
+
+            broadcastRoomUpdate(io, room);
+            io.to(currentRoomId).emit("chat-message", {
+                address: "SYSTEM",
+                message: `🤖 Bot player "${bot.name}" joined! (${difficulty} difficulty)`,
+                timestamp: Date.now(),
+            });
+            console.log(`[Bot] Added ${bot.name} (${difficulty}) to room ${currentRoomId}`);
         });
 
         // ── Chat Message ────────────────────────────────────────────────────────

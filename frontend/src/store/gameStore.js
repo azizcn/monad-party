@@ -196,6 +196,10 @@ const useGameStore = create((set, get) => ({
         get().socket?.emit('room-list')
     },
 
+    addBot: (walletAddress, difficulty = 'easy') => {
+        get().socket?.emit('add-bot', { walletAddress, difficulty })
+    },
+
     leaveRoom: (walletAddress) => {
         get().socket?.emit('leave-room', { walletAddress })
         set({

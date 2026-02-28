@@ -10,19 +10,22 @@ const { setupSocketHandlers } = require("./socketHandlers");
 const app = express();
 const server = http.createServer(app);
 
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
+const FRONTEND_URL = process.env.FRONTEND_URL || '*';
 const PORT = process.env.PORT || 3001;
 
-app.use(cors({ origin: FRONTEND_URL, credentials: true }));
+// Allow all origins for Railway/Vercel compatibility
+const corsOptions = {
+    origin: FRONTEND_URL === '*' ? true : FRONTEND_URL,
+    methods: ["GET", "POST"],
+    credentials: FRONTEND_URL !== '*',
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // ─── Socket.io ────────────────────────────────────────────────────────────────
 const io = new Server(server, {
-    cors: {
-        origin: FRONTEND_URL,
-        methods: ["GET", "POST"],
-        credentials: true,
-    },
+    cors: corsOptions,
     pingTimeout: 60000,
     pingInterval: 25000,
 });
